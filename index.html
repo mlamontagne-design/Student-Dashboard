@@ -280,9 +280,17 @@ let cachedDoNowUrl = ""; // Stores the URL for the Do Now link
 
 // AUTH LOGIC
 async function signInWithGoogle() {
+    // This uses the EXACT current URL of the page you are standing on
+    const targetUrl = window.location.href.split('#')[0].split('?')[0];
+    
     const { error } = await supa.auth.signInWithOAuth({
         provider: 'google',
-        redirectTo: window.location.origin + window.location.pathname.replace(/\/$/, "") + "/"
+        options: { 
+            redirectTo: targetUrl,
+            queryParams: {
+                prompt: 'select_account'
+            }
+        }
     });
     if (error) alert("Login failed: " + error.message);
 }
@@ -307,7 +315,7 @@ supa.auth.onAuthStateChange(async (event, session) => {
         
         // Initialize Real-time Listeners
         subscribeToRoomChanges(); 
-        initStudentRealtime(currentUser.id);
+        initStudentRealtime(currentUser.email);
     } else {
         currentUser = { id: "", name: "", email: "", verified: false };
         userDisplay.style.display = 'none';
@@ -318,14 +326,14 @@ supa.auth.onAuthStateChange(async (event, session) => {
 });
 
 // --- REAL-TIME RANK UPDATER ---
-function initStudentRealtime(studentId) {
+function initStudentRealtime(userEmail) {
     // studentId here is the UUID (session.user.id)
     supa.channel('student-rank-sync')
         .on('postgres_changes', { 
             event: 'UPDATE', 
             schema: 'public', 
             table: 'students', 
-            filter: `google_id=eq.${studentId}` // CHANGED FROM id TO google_id
+            filter: `google_id=eq.${userEmail}` // CHANGED FROM id TO google_id
         }, 
         (payload) => {
             console.log("Rank updated in real-time!", payload.new);
@@ -431,7 +439,7 @@ async function openRank() {
     const { data, error } = await supa
         .from('students')
         .select('*')
-        .eq('google_id', user.id) 
+        .eq('email', user.email) 
         .single();
 
     if (error) {
@@ -548,4 +556,5 @@ async function handleSignOut() {
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
