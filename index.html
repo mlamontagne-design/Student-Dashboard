@@ -317,43 +317,42 @@ supa.auth.onAuthStateChange(async (event, session) => {
     currentUser.verified = true;
 
     // 3. THE AUTO-LINKER (Only runs on specific login events to avoid AbortError)
+    // 3. THE AUTO-LINKER (Stabilized & Fuzzy Match)
     if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
         try {
+            // .trim() removes any hidden spaces at the start or end of your name
+            const cleanName = currentUser.name.trim(); 
             console.log("🔍 Auto-Linker active. Event:", event);
-            
-            // Format check: If your table uses "Doe, John", uncomment the line below:
-            // const searchName = currentUser.name.split(' ').reverse().join(', ');
-            const searchName = currentUser.name; 
-
-            console.log("🔎 Searching DB for name:", searchName);
+            console.log("🔎 Searching DB for trimmed name:", cleanName);
             
             const { data: studentRecord, error: fetchError } = await supa
                 .from('students')
                 .select('name, email')
-                .eq('name', searchName)
+                .ilike('name', cleanName) // .ilike is case-insensitive
                 .maybeSingle();
 
             if (fetchError) {
                 console.error("❌ DB Fetch Error:", fetchError.message);
             } else if (studentRecord) {
-                console.log("✅ Match found! Current DB email:", studentRecord.email);
+                console.log("✅ Match found! DB Name:", studentRecord.name, "DB Email:", studentRecord.email);
                 
                 if (!studentRecord.email) {
-                    console.log("🚀 Linker: Email is NULL. Updating with:", currentUser.email);
+                    console.log("🚀 Linker: Email is NULL. Attempting to update...");
                     
                     const { error: updateError } = await supa
                         .from('students')
                         .update({ email: currentUser.email })
-                        .eq('name', searchName);
+                        .ilike('name', cleanName);
 
                     if (updateError) {
-                        console.error("❌ Update failed (Check RLS Policy):", updateError.message);
+                        console.error("❌ Update failed:", updateError.message);
                     } else {
                         console.log("🎊 Success! Email linked to record.");
                     }
                 }
             } else {
-                console.warn("⚠️ No student record found for:", searchName);
+                console.warn("⚠️ No student record found for:", cleanName);
+                console.log("Action: Manually verify the 'name' in Supabase matches exactly.");
             }
         } catch (err) {
             console.error("💀 Auto-linker crashed:", err);
@@ -602,6 +601,7 @@ async function handleSignOut() {
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
 
