@@ -477,24 +477,26 @@ function hideAllSliders() {
 async function openRank() {
     showSlider('rank-display');
     const { data: { user } } = await supa.auth.getUser();
-    
     if (!user) return;
 
-    // We now look for the row where the 'email' column matches the logged-in user
+    // Use maybeSingle() instead of single() to avoid the 406 error crash
     const { data, error } = await supa
         .from('students')
         .select('*')
-        .eq('email', user.email) 
-        .single();
+        .or(`email.eq.${user.email},name.eq.${currentUser.name}`) // Look for Email OR Name
+        .maybeSingle(); 
 
     if (error) {
         console.error("Rank fetch error:", error.message);
         return;
     }
 
-    if (data) updateRankUI(data);
+    if (data) {
+        updateRankUI(data);
+    } else {
+        console.warn("No data found for this student yet.");
+    }
 }
-
 // --- HELP REQUESTS ---
 // --- AUTO-TRANSLATION HELPER ---
 // --- HELP REQUESTS ---
@@ -556,6 +558,7 @@ async function submitHelp() {
 
         // 2. Insert into Database
         const { error } = await supa.from('help_requests').insert([{ 
+            // We use the current session info directly so it's always accurate
             student_id: currentUser.id, 
             student_name: currentUser.name, 
             type: activeHelpType, 
@@ -599,6 +602,7 @@ async function handleSignOut() {
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
 
