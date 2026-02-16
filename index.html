@@ -308,22 +308,40 @@ supa.auth.onAuthStateChange(async (event, session) => {
 
         // 2. THE AUTO-LINKER (Fills in those NULL emails in your table)
         // This looks for a student with the same name and no email yet
+       // --- AUTO-LINKER WITH DEBUGGING ---
         try {
-            const { data: studentRecord } = await supa
+            console.log("Searching for student record with name:", currentUser.name);
+            
+            const { data: studentRecord, error: fetchError } = await supa
                 .from('students')
-                .select('email')
+                .select('name, email')
                 .eq('name', currentUser.name)
                 .maybeSingle();
 
-            if (studentRecord && !studentRecord.email) {
-                await supa
-                    .from('students')
-                    .update({ email: currentUser.email })
-                    .eq('name', currentUser.name);
-                console.log("System: Email linked to student record.");
+            if (fetchError) console.error("Database fetch error:", fetchError);
+
+            if (studentRecord) {
+                console.log("Found record! Current email in DB:", studentRecord.email);
+                
+                if (!studentRecord.email) {
+                    console.log("Email is missing. Attempting to link:", currentUser.email);
+                    
+                    const { error: updateError } = await supa
+                        .from('students')
+                        .update({ email: currentUser.email })
+                        .eq('name', currentUser.name);
+
+                    if (updateError) {
+                        console.error("Update failed! Do you have RLS permissions set?", updateError);
+                    } else {
+                        console.log("Success! Email linked.");
+                    }
+                }
+            } else {
+                console.warn("No student found in the table with the name:", currentUser.name);
             }
         } catch (err) {
-            console.warn("Auto-linker encountered an issue:", err);
+            console.error("Auto-linker crashed:", err);
         }
 
         // 3. UI UPDATES (Your original code)
@@ -573,6 +591,7 @@ async function handleSignOut() {
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
 
