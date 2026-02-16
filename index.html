@@ -295,86 +295,83 @@ async function signInWithGoogle() {
     if (error) alert("Login failed: " + error.message);
 }
 
+let isInitialized = false; // Add this line outside/above the listener
+
 supa.auth.onAuthStateChange(async (event, session) => {
     const logoutBtn = document.getElementById('logout-btn');
     const userDisplay = document.getElementById('user-id-display');
 
     // 1. Handle Sign Out
     if (event === 'SIGNED_OUT' || !session) {
+        isInitialized = false; 
         currentUser = { id: "", name: "", email: "", verified: false };
         if (userDisplay) userDisplay.style.display = 'none';
         if (logoutBtn) logoutBtn.style.display = 'none';
         document.getElementById('login-overlay').style.display = 'flex';
         document.getElementById('main-dashboard').classList.remove('active');
         hideAllSliders();
-        return; // Stop here if signed out
+        return; 
     }
 
-    // 2. Capture User Data from Google
+    // 2. Capture User Data
     currentUser.id = session.user.id;
     currentUser.email = session.user.email;
     currentUser.name = session.user.user_metadata.full_name || session.user.email;
     currentUser.verified = true;
 
-    // 3. THE AUTO-LINKER (Only runs on specific login events to avoid AbortError)
-    // 3. THE AUTO-LINKER (Stabilized & Fuzzy Match)
+    // 3. THE AUTO-LINKER
     if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
         try {
-            // .trim() removes any hidden spaces at the start or end of your name
             const cleanName = currentUser.name.trim(); 
             console.log("🔍 Auto-Linker active. Event:", event);
-            console.log("🔎 Searching DB for trimmed name:", cleanName);
             
             const { data: studentRecord, error: fetchError } = await supa
                 .from('students')
                 .select('name, email')
-                .ilike('name', cleanName) // .ilike is case-insensitive
+                .ilike('name', cleanName)
                 .maybeSingle();
 
-            if (fetchError) {
-                console.error("❌ DB Fetch Error:", fetchError.message);
-            } else if (studentRecord) {
-                console.log("✅ Match found! DB Name:", studentRecord.name, "DB Email:", studentRecord.email);
-                
-                if (!studentRecord.email) {
-                    console.log("🚀 Linker: Email is NULL. Attempting to update...");
-                    
-                    const { error: updateError } = await supa
-                        .from('students')
-                        .update({ email: currentUser.email })
-                        .ilike('name', cleanName);
-
-                    if (updateError) {
-                        console.error("❌ Update failed:", updateError.message);
-                    } else {
-                        console.log("🎊 Success! Email linked to record.");
-                    }
-                }
-            } else {
-                console.warn("⚠️ No student record found for:", cleanName);
-                console.log("Action: Manually verify the 'name' in Supabase matches exactly.");
+            if (studentRecord && !studentRecord.email) {
+                console.log("🚀 Linker: Email is NULL. Attempting to update...");
+                await supa.from('students')
+                    .update({ email: currentUser.email })
+                    .ilike('name', cleanName);
+                console.log("🎊 Success! Email linked.");
             }
         } catch (err) {
             console.error("💀 Auto-linker crashed:", err);
         }
     }
 
-    // 4. UI UPDATES
-    if (userDisplay) {
-        userDisplay.innerText = `OPERATOR: ${currentUser.name}`;
-        userDisplay.style.display = 'block';
-    }
-    if (logoutBtn) logoutBtn.style.display = 'block';
-    
-    document.getElementById('help-user-display').innerText = `Logged in as: ${currentUser.name}`;
-    document.getElementById('login-overlay').style.display = 'none';
-    document.getElementById('main-dashboard').classList.add('active');
-    
-    // 5. Initialize Listeners
-    subscribeToRoomChanges(); 
-    initStudentRealtime(currentUser.email);
-});
+    // 4. UI & LISTENERS (The "Only Run Once" Guardrail)
+    if (!isInitialized) {
+        console.log("🛠️ Initializing UI for:", currentUser.name);
 
+        if (userDisplay) {
+            userDisplay.innerText = `OPERATOR: ${currentUser.name}`;
+            userDisplay.style.display = 'block';
+        }
+
+        // Fix the Logout Button
+        if (logoutBtn) {
+            logoutBtn.style.display = 'block';
+            logoutBtn.onclick = async () => {
+                await supa.auth.signOut();
+                window.location.reload(); // Refresh to ensure a clean state
+            };
+        }
+
+        document.getElementById('help-user-display').innerText = `Logged in as: ${currentUser.name}`;
+        document.getElementById('login-overlay').style.display = 'none';
+        document.getElementById('main-dashboard').classList.add('active');
+
+        // 5. Initialize Listeners
+        subscribeToRoomChanges(); 
+        initStudentRealtime(currentUser.email);
+
+        isInitialized = true; // Close the door
+    }
+});
 // --- REAL-TIME RANK UPDATER ---
 function initStudentRealtime(userEmail) {
     // studentId here is the UUID (session.user.id)
@@ -601,6 +598,7 @@ async function handleSignOut() {
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
 
