@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tech Lab Mission Control</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --bg-color: #0f0f0f;
+            --card-bg: #1a1a1a;
+            --accent-blue: #03a9f4;
+            --accent-green: #4caf50;
+            --text-main: #e0e0e0;
+        }
+
+        /* --- GOOGLE TRANSLATE OVERRIDES --- */
+       #translate-wrapper { 
+    position: absolute; 
+    top: 50%;
+    left: 20px; 
+    transform: translateY(-50%); 
+    z-index: 1000; 
+    background: transparent; /* Removed the grey box */
+    padding: 2px 8px; 
+    border: none; /* Removed the dark outline */
+    height: 32px; 
+    display: flex;
+    align-items: center;
+}
+
+#translate-wrapper:hover {
+    border-color: var(--accent-blue);
+}
+        .goog-te-gadget { font-size: 0 !important; color: transparent !important; }
+        .goog-te-gadget .goog-te-combo { 
+    background: rgba(0, 0, 0, 0.2) !important; /* Slight dark tint for readability */
+    color: #fff !important; 
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    border-radius: 4px;
+    padding: 2px;
+}
+        .goog-logo-link, .goog-te-gadget span, .goog-te-banner-frame { display: none !important; }
+
+        * { box-sizing: border-box; }
+        body { 
+            position: static !important; margin: 0; top: 0 !important;
+            background: var(--bg-color); font-family: 'Inter', sans-serif; 
+            color: var(--text-main); height: 100vh; width: 100vw;
+            display: flex; flex-direction: column; overflow: hidden; 
+        }
+        
+        #status-bar { height: 10vh; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; font-weight: 900; background: #222; border-bottom: 2px solid #333; transition: 0.5s; }
+
+        .dashboard { flex-grow: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 20px; padding: 20px; filter: blur(12px); pointer-events: none; transition: filter 0.6s ease; }
+        .dashboard.active { filter: blur(0); pointer-events: auto; }
+
+        .card { 
+            background: var(--card-bg); border-radius: 20px; border: 1px solid #333;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            position: relative; cursor: pointer; overflow: hidden;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .card:hover { background: #252525; border-color: var(--accent-blue); transform: translateY(-4px); }
+        .card-icon { font-size: 3rem; margin-bottom: 8px; }
+
+        .slider { 
+            position: absolute; inset: 0; background: #121212; 
+            display: none; flex-direction: column; padding: 12px; z-index: 100; 
+            animation: slideUp 0.2s ease-out; align-items: center; justify-content: space-between;
+        }
+        
+        #login-overlay { display: flex; z-index: 500; }
+
+        .slider-header { font-weight: bold; color: var(--accent-blue); font-size: 1.1rem; }
+        .target-item { display: flex; align-items: center; gap: 15px; width: 95%; background: #1a1a1a; padding: 12px; border-radius: 12px; border: 1px solid #333; font-size: 0.95rem; }
+        
+        .form-content { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+        
+        /* This makes the wrapper fill the slider */
+        /* This container will now expand to fill the gap */
+        #detail-area {
+            width: 100%;
+            display: none; /* Controlled by JS */
+            flex-direction: column;
+            flex: 1; /* Key: Take up all remaining vertical space */
+            min-height: 0; /* Prevents flex items from bulging past parent */
+            margin: 10px 0;
+        }
+
+        textarea { 
+            background: #222; 
+            border: 1px solid #444; 
+            color: #fff; 
+            padding: 15px; 
+            border-radius: 12px; 
+            width: 100%; 
+            height: 100%; /* Fill the flex container */
+            font-size: 1.1rem; 
+            outline: none; 
+            resize: none;
+            box-sizing: border-box;
+        }
+        textarea:focus { border-color: var(--accent-blue); background: #282828; }
+        .btn { 
+            background: var(--accent-blue); color: #fff; border: none; padding: 14px; 
+            border-radius: 10px; font-weight: bold; width: 95%; cursor: pointer; font-size: 1rem;
+            transition: background 0.2s;
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+        }
+        .btn:hover { filter: brightness(1.1); }
+        .btn:active { transform: scale(0.97); }
+
+        .help-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+        .help-btn { background: #222; border: solid 1px #333; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 80px; transition: 0.2s; }
+        .help-btn:hover { border-color: var(--accent-blue); background: #2a2a2a; }
+
+        .rank-table { width: 95%; border-collapse: collapse; }
+        .rank-table td { padding: 10px 5px; border-bottom: 1px solid #333; font-size: 0.9rem; }
+        .rank-val { text-align: right; color: var(--accent-blue); font-weight: bold; }
+
+        #cooldown-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.95); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 200; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .pin-hint { font-size: 0.85rem; color: #aaa; margin: 10px 0; line-height: 1.4; width: 85%; text-align: center; }
+        .logged-in-as { font-size: 0.8rem; color: var(--accent-green); font-weight: bold; margin-bottom: 5px;}
+        .back { color: #666; cursor: pointer; font-size: 0.85rem; text-decoration: underline; padding: 5px; }
+        .user-control-group {
+    position: absolute;
+    right: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+
+#user-id-display {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    opacity: 0.8;
+    color: inherit; /* Inherits black or white from the status bar logic */
+}
+
+/* Ensure the logout button doesn't have absolute positioning anymore 
+   so it sits nicely below the name */
+.logout-btn {
+    position: static; 
+    background: #1a1a1a;
+    color: #ff5252;
+    border: 2px solid #ff5252;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 800;
+    cursor: pointer;
+    display: none;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+}
+
+.logout-btn:hover {
+    background: #ff5252;
+    color: white;
+    transform: scale(1.05);
+}
+    </style>
+</head>
+<body>
+
+    
+    <div id="status-bar" style="position: relative;">
+    <div id="translate-wrapper">
+        <div id="google_translate_element"></div>
+    </div>
+
+    <span id="status-text">📡 CONNECTING...</span>
+    
+    <div class="user-control-group">
+        <div id="user-id-display">NOT IDENTIFIED</div>
+        <button class="logout-btn" id="logout-btn" onclick="handleSignOut()">SIGN OUT</button>
+    </div>
+</div>
+
+    <div id="login-overlay" class="slider">
+        <div class="slider-header">SYSTEM ACCESS</div>
+        <div class="form-content">
+            <div class="pin-hint">Please sign in with your student account to access Mission Control.</div>
+            
+            <button class="btn" id="login-btn" onclick="signInWithGoogle()">
+                <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                INITIALIZE SESSION
+            </button>
+        </div>
+        <div style="height: 20px;"></div>
+    </div>
+
+    <div class="dashboard" id="main-dashboard">
+        <div class="card" onclick="showSlider('donow-slider')">
+            <div class="card-icon">📚</div><div>Do Now</div>
+            <div id="donow-slider" class="slider" onclick="event.stopPropagation()">
+                <div class="slider-header">Do Now</div>
+                <div class="form-content">
+                    <div class="target-item"><div id="donow-text">Loading...</div></div>
+                    <div class="target-item" id="donow-link-container" style="cursor: pointer; border-color: var(--accent-blue); color: var(--accent-blue); font-weight: bold;">
+                        🔗 Open Link
+                    </div>
+                </div>
+                <div class="back" onclick="hideAllSliders()">back</div>
+            </div>
+        </div>
+        
+        <div class="card" onclick="showSlider('target-slider')">
+            <div class="card-icon">🎯</div><div>Targets</div>
+            <div id="target-slider" class="slider" onclick="event.stopPropagation()">
+                <div class="slider-header">Today's Targets</div>
+                <div class="form-content">
+                    <div class="target-item">🎯 <span id="target-main-text">...</span></div>
+                    <div class="target-item">✅ <span id="target-success-text">...</span></div>
+                </div>
+                <div class="back" onclick="hideAllSliders()">back</div>
+            </div>
+        </div>
+
+        <div class="card" onclick="openRank()">
+            <div class="card-icon">🏆</div><div>My Rank</div>
+            <div id="rank-display" class="slider" onclick="event.stopPropagation()">
+                <div class="slider-header"><span id="std-name" style="color: var(--accent-blue);">---</span></div>
+                <table class="rank-table">
+                    <tr><td>Typing</td><td id="r-type" class="rank-val">-</td></tr>
+                    <tr><td>OS</td><td id="r-os" class="rank-val">-</td></tr>
+                    <tr><td>Sheets</td><td id="r-sheet" class="rank-val">-</td></tr>
+                    <tr><td>Web Dev</td><td id="r-web" class="rank-val">-</td></tr>
+                </table>
+                <div class="back" onclick="hideAllSliders()">CLOSE</div>
+            </div>
+        </div>
+
+        <div class="card" id="help-card" onclick="if(!isOnCooldown) showSlider('help-main')">
+            <div class="card-icon">🙋‍♂️</div><div>Help</div>
+            <div id="cooldown-overlay"><div style="font-size: 2.5rem;">⏳</div><div id="cooldown-timer">Wait...</div></div>
+            
+            <div id="help-main" class="slider" onclick="event.stopPropagation()">
+                <div class="slider-header">How can I help?</div>
+                <div class="help-grid">
+                    <div class="help-btn" onclick="showHelpForm('Question')">❓ Question</div>
+                    <div class="help-btn" onclick="showHelpForm('Test')">📝 Test</div>
+                    <div class="help-btn" onclick="showHelpForm('Restroom')">🚻 Restroom</div>
+                    <div class="help-btn" onclick="showHelpForm('Hazard')">⚠️ Report</div>
+                </div>
+                <div class="back" onclick="hideAllSliders()">cancel</div>
+            </div>
+
+            <div id="help-form" class="slider" onclick="event.stopPropagation()">
+                <div class="slider-header" id="form-title">Request</div>
+                <div class="form-content">
+                    <div class="logged-in-as" id="help-user-display">Logged in as: ---</div>
+                    <div id="detail-area" style="display:none;">
+                        <textarea id="detail-text" placeholder="Explain your request..."></textarea>
+                    </div>
+                    <button class="btn" id="submit-help-btn" onclick="submitHelp()">SEND REQUEST</button>
+                </div>
+                <div class="back" onclick="showSlider('help-main')">back</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+       // --- STUDENT SIDE SCRIPT ---
+
+// CONFIG
+const SUPABASE_URL = "https://irthpbbqlhglvpazahft.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlydGhwYmJxbGhnbHZwYXphaGZ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzExMTkzODIsImV4cCI6MjA4NjY5NTM4Mn0.4Pp-NxsgSJO0RiNY5aM8rZ54NhUQkpYlOUib-WHgAks";
+const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let currentUser = { id: "", name: "", email: "", verified: false };
+let activeHelpType = ""; 
+let isOnCooldown = false;
+let cachedDoNowUrl = ""; // Stores the URL for the Do Now link
+
+// AUTH LOGIC
+async function signInWithGoogle() {
+    const { error } = await supa.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: window.location.origin + window.location.pathname }
+    });
+    if (error) alert("Login failed: " + error.message);
+}
+
+supa.auth.onAuthStateChange(async (event, session) => {
+    const logoutBtn = document.getElementById('logout-btn');
+    const userDisplay = document.getElementById('user-id-display');
+
+    if (session) {
+        currentUser.id = session.user.id;
+        currentUser.email = session.user.email;
+        currentUser.name = session.user.user_metadata.full_name || session.user.email;
+        currentUser.verified = true;
+
+        userDisplay.innerText = `OPERATOR: ${currentUser.name}`;
+        userDisplay.style.display = 'block';
+        logoutBtn.style.display = 'block';
+        
+        document.getElementById('help-user-display').innerText = `Logged in as: ${currentUser.name}`;
+        document.getElementById('login-overlay').style.display = 'none';
+        document.getElementById('main-dashboard').classList.add('active');
+        
+        // Initialize Real-time Listeners
+        subscribeToRoomChanges(); 
+        initStudentRealtime(currentUser.id);
+    } else {
+        currentUser = { id: "", name: "", email: "", verified: false };
+        userDisplay.style.display = 'none';
+        logoutBtn.style.display = 'none';
+        document.getElementById('login-overlay').style.display = 'flex';
+        document.getElementById('main-dashboard').classList.remove('active');
+    }
+});
+
+// --- REAL-TIME RANK UPDATER ---
+function initStudentRealtime(studentId) {
+    // studentId here is the UUID (session.user.id)
+    supa.channel('student-rank-sync')
+        .on('postgres_changes', { 
+            event: 'UPDATE', 
+            schema: 'public', 
+            table: 'students', 
+            filter: `google_id=eq.${studentId}` // CHANGED FROM id TO google_id
+        }, 
+        (payload) => {
+            console.log("Rank updated in real-time!", payload.new);
+            updateRankUI(payload.new);
+        })
+        .subscribe();
+}
+
+function updateRankUI(data) {
+    const fields = [
+        { id: 'r-type', key: 'typing' },
+        { id: 'r-os', key: 'chrome' },
+        { id: 'r-sheet', key: 'sheets' },
+        { id: 'r-web', key: 'web' }
+    ];
+
+    fields.forEach(field => {
+        const el = document.getElementById(field.id);
+        if (el) {
+            let rankValue = data[field.key] || "-";
+            // Add the trophy if they've hit the max rank
+            if (rankValue === "Master 3") {
+                rankValue += " 🏆";
+            }
+            el.innerText = rankValue;
+        }
+    });
+
+    if (document.getElementById('std-name')) {
+        document.getElementById('std-name').innerText = data.name;
+    }
+}
+
+// --- REAL-TIME ROOM SETTINGS (DO NOW / TARGETS) ---
+async function subscribeToRoomChanges() {
+    // 1. Initial Load
+    const { data } = await supa.from('room_settings').select('*').eq('id', 1).single();
+    if (data) {
+        updateRoomUI(data.mode);
+        applySettingsUI(data);
+    }
+
+    // 2. Real-time Subscription
+    supa.channel('room_updates')
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_settings', filter: 'id=eq.1' }, 
+        (payload) => {
+            updateRoomUI(payload.new.mode);
+            applySettingsUI(payload.new);
+        })
+        .subscribe();
+}
+
+function applySettingsUI(data) {
+    // Update Do Now
+    if (document.getElementById('donow-text')) document.getElementById('donow-text').innerText = data.do_now_text || "No Do Now assigned.";
+    cachedDoNowUrl = data.do_now_url || "";
+    
+    // Update Targets
+    if (document.getElementById('target-main-text')) document.getElementById('target-main-text').innerText = data.target_text || "...";
+    if (document.getElementById('target-success-text')) document.getElementById('target-success-text').innerText = data.success_criteria || "...";
+}
+
+// Handle Do Now Link Click
+document.getElementById('donow-link-container').onclick = () => {
+    if (cachedDoNowUrl) window.open(cachedDoNowUrl, '_blank');
+    else alert("No link provided for this Do Now.");
+};
+
+// --- UI & NAVIGATION ---
+function updateRoomUI(mode) {
+    const bar = document.getElementById('status-bar');
+    const statusText = document.getElementById('status-text');
+    const m = mode.toLowerCase();
+    const icons = { silent: '🤫 SILENT', whisper: '🔉 WHISPER', collaborate: '🗣️ COLLABORATE' };
+
+    bar.style.background = m === 'silent' ? '#d32f2f' : (m === 'whisper' ? '#fbc02d' : '#388e3c');
+    bar.style.color = m === 'whisper' ? '#1a1a1a' : '#ffffff';
+    statusText.innerText = icons[m] || icons.collaborate;
+}
+
+function showSlider(id) { 
+    hideAllSliders(); 
+    document.getElementById(id).style.display = 'flex'; 
+}
+
+function hideAllSliders() { 
+    document.querySelectorAll('.slider:not(#login-overlay)').forEach(s => s.style.display = 'none'); 
+}
+
+async function openRank() {
+    showSlider('rank-display');
+
+    // 1. Get the current authenticated user session
+    const { data: { user } } = await supa.auth.getUser();
+
+    // 2. Safeguard: If no user is logged in, stop here
+    if (!user) {
+        console.error("User not found. Please log in.");
+        return;
+    }
+
+    // 3. Now run your query using the user.id we just fetched
+    const { data, error } = await supa
+        .from('students')
+        .select('*')
+        .eq('google_id', user.id) 
+        .single();
+
+    if (error) {
+        console.error("Error fetching rank:", error.message);
+        return;
+    }
+
+    if (data) {
+        updateRankUI(data);
+    }
+}
+
+// --- HELP REQUESTS ---
+// --- AUTO-TRANSLATION HELPER ---
+// --- HELP REQUESTS ---
+
+/**
+ * Toggles the UI to show the specific help form (Question, Test, etc.)
+ */
+function showHelpForm(type) {
+    activeHelpType = type;
+    document.getElementById('form-title').innerText = type + " Request";
+    
+    // Show the text area only for Questions or Hazards
+    const detailArea = document.getElementById('detail-area');
+    if (detailArea) {
+        detailArea.style.display = (type === 'Question' || type === 'Hazard') ? 'flex' : 'none';
+    }
+    
+    showSlider('help-form');
+}
+
+/**
+ * Detects language and translates to English if necessary
+ */
+async function translateIfNecessary(text) {
+    if (!text || text === "Standard Request") return text;
+    try {
+        const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURI(text)}`);
+        const data = await res.json();
+        
+        const translatedText = data[0][0][0];
+        const detectedLang = data[2]; // e.g., "es" or "pt"
+
+        if (detectedLang !== 'en' && detectedLang !== 'en-US') {
+            return `TR: ${translatedText} (Orig: ${text})`;
+        }
+        return text;
+    } catch (e) {
+        console.error("Translation failed, sending original:", e);
+        return text; 
+    }
+}
+
+/**
+ * Sends the request to Supabase
+ */
+async function submitHelp() {
+    const detailInput = document.getElementById('detail-text');
+    const rawDetails = detailInput ? detailInput.value.trim() : "";
+    const btn = document.getElementById('submit-help-btn');
+    
+    if (!currentUser.id) return alert("Session expired. Please refresh.");
+
+    btn.innerText = "TRANSMITTING..."; 
+    btn.disabled = true;
+
+    try {
+        // 1. Process Translation
+        const finalDetails = await translateIfNecessary(rawDetails || "Standard Request");
+
+        // 2. Insert into Database
+        const { error } = await supa.from('help_requests').insert([{ 
+            student_id: currentUser.id, 
+            student_name: currentUser.name, 
+            type: activeHelpType, 
+            details: finalDetails, 
+            status: 'pending' 
+        }]);
+
+        if (error) throw error;
+
+        // 3. UI Feedback
+        startCooldown((activeHelpType === 'Question' || activeHelpType === 'Hazard') ? 10 : 30);
+        hideAllSliders();
+        if (detailInput) detailInput.value = "";
+        
+    } catch(e) { 
+        alert("Error: " + e.message);
+    } finally { 
+        btn.innerText = "SEND REQUEST"; 
+        btn.disabled = false; 
+    }
+}
+
+function startCooldown(s) {
+    isOnCooldown = true;
+    document.getElementById('cooldown-overlay').style.display = 'flex';
+    let rem = s;
+    const inv = setInterval(() => {
+        document.getElementById('cooldown-timer').innerText = `Wait ${rem}s`;
+        if (rem-- <= 0) { clearInterval(inv); isOnCooldown = false; document.getElementById('cooldown-overlay').style.display = 'none'; }
+    }, 1000);
+}
+
+function googleTranslateElementInit() {
+    new google.translate.TranslateElement({pageLanguage: 'en', includedLanguages: 'en,pt,es', layout: google.translate.TranslateElement.InlineLayout.SIMPLE}, 'google_translate_element');
+}
+
+async function handleSignOut() {
+    await supa.auth.signOut();
+}
+    </script>
+    <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
+</body>
+</html>
