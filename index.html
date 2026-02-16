@@ -300,11 +300,33 @@ supa.auth.onAuthStateChange(async (event, session) => {
     const userDisplay = document.getElementById('user-id-display');
 
     if (session) {
+        // 1. Capture User Data
         currentUser.id = session.user.id;
         currentUser.email = session.user.email;
         currentUser.name = session.user.user_metadata.full_name || session.user.email;
         currentUser.verified = true;
 
+        // 2. THE AUTO-LINKER (Fills in those NULL emails in your table)
+        // This looks for a student with the same name and no email yet
+        try {
+            const { data: studentRecord } = await supa
+                .from('students')
+                .select('email')
+                .eq('name', currentUser.name)
+                .maybeSingle();
+
+            if (studentRecord && !studentRecord.email) {
+                await supa
+                    .from('students')
+                    .update({ email: currentUser.email })
+                    .eq('name', currentUser.name);
+                console.log("System: Email linked to student record.");
+            }
+        } catch (err) {
+            console.warn("Auto-linker encountered an issue:", err);
+        }
+
+        // 3. UI UPDATES (Your original code)
         userDisplay.innerText = `OPERATOR: ${currentUser.name}`;
         userDisplay.style.display = 'block';
         logoutBtn.style.display = 'block';
@@ -313,15 +335,18 @@ supa.auth.onAuthStateChange(async (event, session) => {
         document.getElementById('login-overlay').style.display = 'none';
         document.getElementById('main-dashboard').classList.add('active');
         
-        // Initialize Real-time Listeners
+        // 4. Initialize Listeners
         subscribeToRoomChanges(); 
-        initStudentRealtime(currentUser.email);
+        initStudentRealtime(currentUser.email); // Passing email for real-time sync
+        
     } else {
+        // RESET UI ON LOGOUT
         currentUser = { id: "", name: "", email: "", verified: false };
         userDisplay.style.display = 'none';
         logoutBtn.style.display = 'none';
         document.getElementById('login-overlay').style.display = 'flex';
         document.getElementById('main-dashboard').classList.remove('active');
+        hideAllSliders();
     }
 });
 
@@ -548,6 +573,7 @@ async function handleSignOut() {
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
 
