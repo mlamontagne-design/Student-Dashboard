@@ -264,7 +264,16 @@
     // --- CONFIGURATION ---
     const SUPABASE_URL = "https://irthpbbqlhglvpazahft.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlydGhwYmJxbGhnbHZwYXphaGZ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzExMTkzODIsImV4cCI6MjA4NjY5NTM4Mn0.4Pp-NxsgSJO0RiNY5aM8rZ54NhUQkpYlOUib-WHgAks";
-    const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: {
+            persistSession: true,
+            autoRefreshToken: true,
+        },
+        global: {
+            // Increase fetch timeout to prevent premature aborts on slow school wifi
+            fetch: (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(10000) })
+        }
+    });
 
     let currentUser = { id: "", name: "", email: "", verified: false };
     let activeHelpType = ""; 
@@ -293,15 +302,11 @@
 
     // --- MAIN EVENT LISTENER ---
     supa.auth.onAuthStateChange(async (event, session) => {
-        // --- HASH GUARD ---
-        if (event === 'SIGNED_OUT' && window.location.hash.includes('access_token')) {
-            return; 
-        }
+        if (event === 'SIGNED_OUT' && window.location.hash.includes('access_token')) return; 
 
         const logoutBtn = document.getElementById('logout-btn');
         const userDisplay = document.getElementById('user-id-display');
 
-        // 1. Handle Sign Out
         if (event === 'SIGNED_OUT' || !session) {
             isInitialized = false; 
             currentUser = { id: "", name: "", email: "", verified: false };
@@ -314,13 +319,11 @@
             return; 
         }
 
-        // 2. Capture User Data
         currentUser.id = session.user.id;
         currentUser.email = session.user.email;
         currentUser.name = session.user.user_metadata.full_name || session.user.email;
         currentUser.verified = true;
 
-        // 3. AUTO-LINKER
         if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
             try {
                 const cleanName = currentUser.name.trim(); 
@@ -335,10 +338,9 @@
                         .update({ email: currentUser.email })
                         .ilike('name', cleanName);
                 }
-            } catch (err) { console.error("Auto-linker error:", err); }
+            } catch (err) { console.warn("Auto-linker warning:", err); }
         }
 
-        // 4. UI & LISTENERS (Run Once)
         if (!isInitialized) {
             console.log("✅ Initializing Dashboard for:", currentUser.name);
             
@@ -358,6 +360,8 @@
 
             subscribeToRoomChanges(); 
             initStudentRealtime(currentUser.email);
+            // Small delay to ensure network is ready before first fetch
+            setTimeout(() => fetchStudentProfile(currentUser.email), 500);
             isInitialized = true; 
         }
     });
@@ -370,27 +374,31 @@
             .subscribe();
     }
 
-    // --- ROBUST DATA FETCHING (UPDATED WITH ABORT HANDLING) ---
+    // --- UPDATED FETCH FUNCTION (FIXES ABORT ERROR) ---
     async function fetchStudentProfile(email, retryCount = 0) {
         if (!email) return;
         
-        console.log("🔄 Fetching student profile...");
-        const { data, error } = await supa
-            .from('students')
-            .select('*')
-            .eq('email', email)
-            .maybeSingle();
+        // console.log("🔄 Fetching student profile..."); // Commented out to reduce console noise
+        
+        try {
+            const { data, error } = await supa
+                .from('students')
+                .select('*')
+                .eq('email', email)
+                .maybeSingle();
 
-        if (error) {
-            console.error("Fetch Error:", error.message);
+            if (error) throw error;
             
-            // 1. Handle ABORT (Browser waking up)
-            if (error.message.includes('AbortError') || error.message.includes('aborted')) {
-                if (retryCount < 2) { // Try twice max
-                    console.log(`⚠️ Network aborted. Retrying in 1s (Attempt ${retryCount + 1})...`);
+            if (data) updateRankUI(data);
+
+        } catch (error) {
+            // 1. SILENTLY HANDLE ABORT ERRORS (Don't log them as errors)
+            if (error.name === 'AbortError' || error.message.includes('AbortError') || error.message.includes('aborted')) {
+                if (retryCount < 3) { 
+                    console.log(`💤 Network sleeping. Retrying in 1s (Attempt ${retryCount + 1})...`);
                     setTimeout(() => fetchStudentProfile(email, retryCount + 1), 1000);
                 }
-                return;
+                return; // Stop here, do not log "Fetch Error"
             }
 
             // 2. Handle JWT Auth Error
@@ -400,12 +408,11 @@
                  if (refreshData.session) {
                      setTimeout(() => fetchStudentProfile(email, 0), 500); 
                  }
+                 return;
             }
-            return;
-        }
 
-        if (data) {
-            updateRankUI(data);
+            // Only log ACTUAL errors now
+            console.error("Fetch Error:", error);
         }
     }
 
@@ -428,8 +435,17 @@
     }
 
     async function subscribeToRoomChanges() {
-        const { data } = await supa.from('room_settings').select('*').eq('id', 1).single();
-        if (data) { updateRoomUI(data.mode); applySettingsUI(data); }
+        // Retry logic for room settings as well
+        const fetchSettings = async (retries = 3) => {
+            const { data, error } = await supa.from('room_settings').select('*').eq('id', 1).single();
+            if (error) {
+                if (retries > 0) setTimeout(() => fetchSettings(retries - 1), 1000);
+            } else if (data) {
+                updateRoomUI(data.mode);
+                applySettingsUI(data);
+            }
+        };
+        fetchSettings();
 
         supa.channel('room_updates')
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_settings', filter: 'id=eq.1' }, 
@@ -474,7 +490,7 @@
         await fetchStudentProfile(currentUser.email);
     }
 
-    // --- HELP REQUEST SYSTEM (STRICT MODE) ---
+    // --- HELP REQUEST SYSTEM ---
 
     function showHelpForm(type) {
         activeHelpType = type;
@@ -500,21 +516,28 @@
         showSlider('help-form');
     }
 
-    // STRICT TRANSLATION
     async function translateStrict(text) {
         if (!text || text === "Standard Request") return text;
-        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Translation Timeout")), 4000));
-        const translation = fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURI(text)}`)
-            .then(res => {
-                if (!res.ok) throw new Error("Translation Service Error");
-                return res.json();
-            })
-            .then(data => {
-                const translated = data[0][0][0];
-                const lang = data[2]; 
-                return (lang !== 'en' && lang !== 'en-US') ? `TR: ${translated} (Orig: ${text})` : text;
-            });
-        return await Promise.race([translation, timeout]);
+        
+        // Timeout wrapper for translation
+        const fetchWithTimeout = (url, ms) => {
+            const controller = new AbortController();
+            const promise = fetch(url, { signal: controller.signal });
+            const timeout = setTimeout(() => controller.abort(), ms);
+            return promise.finally(() => clearTimeout(timeout));
+        };
+
+        try {
+            const res = await fetchWithTimeout(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURI(text)}`, 3000);
+            if (!res.ok) throw new Error("Translation Service Error");
+            const data = await res.json();
+            const translated = data[0][0][0];
+            const lang = data[2]; 
+            return (lang !== 'en' && lang !== 'en-US') ? `TR: ${translated} (Orig: ${text})` : text;
+        } catch (e) {
+            console.warn("Translation failed, sending original text.");
+            return text;
+        }
     }
 
     async function submitHelp() {
@@ -530,7 +553,6 @@
         try {
             if (!currentUser.id) throw new Error("Connection lost. Please wait...");
 
-            // 1. SELECTIVE LIMIT CHECK
             if (['Test', 'Restroom'].includes(activeHelpType)) {
                 const { data: existingRequests, error: checkError } = await supa
                     .from('help_requests')
@@ -546,7 +568,6 @@
                 }
             }
 
-            // 2. PREPARE MESSAGE & STRICT TRANSLATE
             btn.innerText = "TRANSLATING...";
             let finalDetails = "Standard Request"; 
 
@@ -554,7 +575,6 @@
                 finalDetails = await translateStrict(rawText);
             }
 
-            // 3. SEND TO DB
             btn.innerText = "SENDING...";
             const { error: insertError } = await supa.from('help_requests').insert([{ 
                 student_id: currentUser.id, 
@@ -566,7 +586,6 @@
 
             if (insertError) throw insertError;
 
-            // 4. SUCCESS
             btn.innerText = "SENT!";
             
             buttonResetTimer = setTimeout(() => { 
@@ -577,12 +596,10 @@
             }, 1000);
 
         } catch (err) {
-            console.error("Request Failed:", err.message);
-            
-            // --- NEW ABORT / AUTH HANDLING ---
-            if (err.message.includes("AbortError") || err.message.includes("aborted")) {
-                 btn.innerText = "WAKING UP...";
-                 setTimeout(submitHelp, 1000); // Retry once automatically
+            // Updated Error Handling here too
+            if (err.name === 'AbortError' || err.message.includes("AbortError")) {
+                 btn.innerText = "RETRYING...";
+                 setTimeout(submitHelp, 1000);
                  return;
             }
 
@@ -600,12 +617,7 @@
             if (err.message.includes("already have a pending")) {
                 btn.innerText = "WAIT"; 
                 alert("🛑 Hold on! " + err.message);
-            } 
-            else if (err.message.includes("Translation") || err.message.includes("Timeout")) {
-                btn.innerText = "TRANSLATION FAILED";
-                alert("⚠️ Network Error: We could not translate your text. Please try again or type in English.");
-            }
-            else {
+            } else {
                 btn.innerText = "ERROR";
                 alert("Error: " + err.message);
             }
@@ -619,40 +631,27 @@
         new google.translate.TranslateElement({pageLanguage: 'en', includedLanguages: 'en,pt,es', layout: google.translate.TranslateElement.InlineLayout.SIMPLE}, 'google_translate_element');
     }
 
-    // --- WAKE UP HANDLER (FIXED WITH DELAY) ---
-    document.addEventListener('visibilitychange', async () => {
+    // --- WAKE UP HANDLER (PREVENTS RACE CONDITIONS) ---
+    document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
-            console.log("👀 Tab is active again. Waiting for network...");
-            
-            // Give Chrome 500ms to wake up the network stack before we ask for data
+            console.log("👀 Tab active. Synchronizing...");
+            // Clear any potentially pending timeouts from previous sleep cycles
+            // Wait 1s full second before retrying data fetch
             setTimeout(async () => {
-                // 1. Check if our session is still valid
-                const { data: { session }, error } = await supa.auth.getSession();
-                
-                if (error || !session) {
-                    console.warn("⚠️ Session expired while in background. Attempting restore...");
-                    const { data: refresh, error: refreshErr } = await supa.auth.refreshSession();
-                    if (refreshErr || !refresh.session) {
-                        return; // Dead session
-                    }
-                }
-
-                // 2. Refresh the data if we have a user
                 if (currentUser.email) {
-                    console.log("Refreshing data...");
-                    fetchStudentProfile(currentUser.email);
+                    const { data: { session } } = await supa.auth.getSession();
+                    if (session) fetchStudentProfile(currentUser.email);
                 }
-            }, 500); // The 500ms "Yawn and Stretch" delay
+            }, 1000); 
         }
     });
 
-    // Logout listener
     document.getElementById('logout-btn').addEventListener('click', (e) => {
         e.preventDefault();
         handleSignOut();
     });
-
 </script>
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
