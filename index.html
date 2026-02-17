@@ -292,19 +292,20 @@
     }
 
     // --- MAIN EVENT LISTENER ---
-    // --- MAIN EVENT LISTENER (ROBUST VERSION) ---
+    // --- MAIN EVENT LISTENER (BROAD GUARD VERSION) ---
     supa.auth.onAuthStateChange(async (event, session) => {
         console.log(`📣 Auth Event: ${event}`);
 
-        // --- 🛑 IMPROVED GUARD 🛑 ---
-        // Check both Hash (#) and Search (?) for auth signals
-        const isAuthCallback = 
-            (window.location.hash && (window.location.hash.includes('access_token') || window.location.hash.includes('type=recovery'))) ||
-            (window.location.search && window.location.search.includes('code='));
+        // --- 🛑 BROAD GUARD 🛑 ---
+        // We detect if there is *anything* interesting in the URL.
+        // If there is a hash longer than 10 chars, or a search query, assume it's an OAuth return.
+        const urlHasData = (window.location.hash && window.location.hash.length > 10) || 
+                           (window.location.search && window.location.search.length > 10);
 
-        // If we are technically "signed out" but URL indicates a login is processing, STOP.
-        if (event === 'SIGNED_OUT' && isAuthCallback) {
-            console.log("⏳ Ignoring SIGNED_OUT (Login Callback in progress...)");
+        // If Supabase fires "SIGNED_OUT" but the URL is heavy with data, 
+        // it means we are likely mid-redirect. IGNORE the sign out.
+        if (event === 'SIGNED_OUT' && urlHasData) {
+            console.log("⏳ URL data detected. Ignoring initial SIGNED_OUT signal.");
             return; 
         }
         
@@ -328,18 +329,20 @@
         }
 
         // 2. Capture User Data & Setup (Logged In)
-        currentUser.id = session.user.id;
-        currentUser.email = session.user.email;
-        currentUser.name = session.user.user_metadata.full_name || session.user.email;
-        currentUser.verified = true;
+        if (session && session.user) {
+            currentUser.id = session.user.id;
+            currentUser.email = session.user.email;
+            currentUser.name = session.user.user_metadata.full_name || session.user.email;
+            currentUser.verified = true;
+        }
 
-        // 3. AUTO-LINKER
+        // 3. AUTO-LINKER (Optional)
         if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
-             // ... (Keep your existing auto-linker logic here if needed, or leave blank) ...
+             // ... auto-linker logic ...
         }
 
         // 4. UI & LISTENERS (Run Once)
-        if (!isInitialized) {
+        if (!isInitialized && currentUser.verified) {
             console.log("✅ Initializing Dashboard for:", currentUser.name);
             
             // Update User UI
@@ -350,14 +353,14 @@
                 userDisplay.innerText = `OPERATOR: ${currentUser.name}`;
                 userDisplay.style.display = 'block';
             }
-            if (logoutBtn) logoutBtn.style.display = 'block'; // Make sure this shows!
+            if (logoutBtn) logoutBtn.style.display = 'block';
 
             document.getElementById('help-user-display').innerText = `Logged in as: ${currentUser.name}`;
             document.getElementById('login-overlay').style.display = 'none';
             document.getElementById('main-dashboard').classList.add('active');
 
-            // Clean URL (Optional but nice)
-            if (isAuthCallback) {
+            // Clean URL safely
+            if (urlHasData) {
                 window.history.replaceState(null, null, window.location.pathname);
             }
 
