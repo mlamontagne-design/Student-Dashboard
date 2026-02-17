@@ -260,73 +260,149 @@
         </div>
     </div>
 
-    <script>
+   <script>
     // --- 1. SETUP & CONFIG ---
     const SUPABASE_URL = "https://irthpbbqlhglvpazahft.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlydGhwYmJxbGhnbHZwYXphaGZ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzExMTkzODIsImV4cCI6MjA4NjY5NTM4Mn0.4Pp-NxsgSJO0RiNY5aM8rZ54NhUQkpYlOUib-WHgAks";
 
+    // Initialize Supabase
     const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
         auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
     });
 
+    // Global State
     let currentUser = { id: "", name: "", email: "", verified: false };
     let activeHelpType = ""; 
     let cachedDoNowUrl = ""; 
     let isInitialized = false; 
 
-    // --- 2. UI WIRING (THE MISSING LINK) ---
-    // This runs as soon as the page loads to hook up all buttons
-    document.addEventListener('DOMContentLoaded', () => {
-        
-        // 1. Hook up Help Buttons (Adjust IDs if your HTML uses different ones)
-        const helpMap = {
-            'btn-question': 'Question',
-            'btn-hazard': 'Hazard',
-            'btn-restroom': 'Restroom',
-            'btn-test': 'Test',
-            'btn-counselor': 'Counselor'
-        };
+    // --- 2. GLOBAL FUNCTIONS (So your HTML buttons work) ---
 
-        for (const [id, type] of Object.entries(helpMap)) {
-            const el = document.getElementById(id);
-            if (el) {
-                el.onclick = () => showHelpForm(type);
-                el.style.cursor = "pointer"; // Visual cue
-            }
-        }
+    // LOGIN
+    window.signInWithGoogle = async function() {
+        console.log("👉 Login Clicked");
+        await supa.auth.signInWithOAuth({
+            provider: 'google',
+            options: { redirectTo: window.location.origin + window.location.pathname }
+        });
+    };
 
-        // 2. Hook up Submit & Cancel
-        const subBtn = document.getElementById('submit-help-btn');
-        if (subBtn) subBtn.onclick = submitHelp;
-        
-        const closeBtns = document.querySelectorAll('.close-slider, .cancel-btn');
-        closeBtns.forEach(btn => btn.onclick = hideAllSliders);
-
-        // 3. Hook up Rank & Do Now
-        const rankBtn = document.getElementById('rank-btn'); // or whatever ID opens the rank
-        if (rankBtn) rankBtn.onclick = openRank;
-
-        const doNowContainer = document.getElementById('donow-link-container');
-        if (doNowContainer) doNowContainer.onclick = () => {
-            if (cachedDoNowUrl) window.open(cachedDoNowUrl, '_blank');
-            else alert("No link provided for this Do Now.");
-        };
-
-        // 4. Hook up Logout
-        const logoutBtn = document.getElementById('logout-btn');
-        if(logoutBtn) logoutBtn.onclick = (e) => { e.preventDefault(); forceSignOut(); };
-    });
-
-    // --- 3. BRUTAL SIGN OUT ---
-    function forceSignOut() {
-        console.log("💀 KILLING SESSION LOCALLY");
+    // LOGOUT (Nuclear Option)
+    window.handleSignOut = function(e) {
+        if(e) e.preventDefault();
+        console.log("👉 Logout Clicked - Nuke Session");
         localStorage.clear();
         sessionStorage.clear();
         window.location.href = window.location.origin + window.location.pathname;
-    }
+    };
 
-    // --- 4. AUTH & INITIALIZATION ---
+    // OPEN HELP FORM
+    window.showHelpForm = function(type) {
+        console.log("👉 Opening Form:", type);
+        activeHelpType = type;
+        
+        // Update Title
+        const titleEl = document.getElementById('form-title');
+        if(titleEl) titleEl.innerText = type + " Request";
+        
+        // Reset Inputs
+        const btn = document.getElementById('submit-help-btn');
+        if (btn) { btn.innerText = "SEND REQUEST"; btn.disabled = false; }
+        
+        const txtBox = document.getElementById('detail-text');
+        if (txtBox) txtBox.value = ""; 
+        
+        // Toggle Text Area for specific types
+        const detailArea = document.getElementById('detail-area');
+        if (detailArea) {
+            detailArea.style.display = (type === 'Question' || type === 'Hazard') ? 'flex' : 'none';
+        }
+        
+        showSlider('help-form');
+    };
+
+    // SUBMIT FORM (With Timeout Protection)
+    window.submitHelp = async function() {
+        console.log("👉 Submit Clicked");
+        const btn = document.getElementById('submit-help-btn');
+        const detailsInput = document.getElementById('detail-text');
+        const rawText = (detailsInput && detailsInput.offsetParent !== null) ? detailsInput.value.trim() : ""; 
+
+        btn.disabled = true;
+        btn.innerText = "SENDING...";
+
+        // 4 Second Timeout Wrapper
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Network Timeout")), 4000));
+
+        try {
+            // Check Duplicates
+            if (['Test', 'Restroom'].includes(activeHelpType)) {
+                const { data } = await Promise.race([
+                    supa.from('help_requests').select('id').eq('student_id', currentUser.id).eq('type', activeHelpType).eq('status', 'pending'),
+                    timeoutPromise
+                ]);
+                if (data && data.length > 0) throw new Error("Request already pending.");
+            }
+
+            let finalDetails = rawText || "Standard Request";
+            
+            // Send Data
+            const { error } = await Promise.race([
+                supa.from('help_requests').insert([{ 
+                    student_id: currentUser.id, student_name: currentUser.name, type: activeHelpType, details: finalDetails, status: 'pending' 
+                }]),
+                timeoutPromise
+            ]);
+
+            if (error) throw error;
+
+            // Success
+            btn.innerText = "SENT!";
+            setTimeout(() => { 
+                btn.disabled = false; btn.innerText = "SEND REQUEST"; 
+                if (detailsInput) detailsInput.value = ""; 
+                hideAllSliders(); 
+            }, 1000);
+
+        } catch (err) {
+            console.error(err);
+            btn.disabled = false;
+            if (err.message === "Network Timeout" || err.message.includes("fetch")) {
+                alert("⚠️ Network stuck. Reloading page...");
+                window.location.reload(); 
+            } else if (err.message.includes("already pending")) {
+                btn.innerText = "WAIT";
+                alert("You already have a request waiting!");
+            } else {
+                btn.innerText = "RETRY";
+                alert("Error: " + err.message);
+            }
+        }
+    };
+
+    // UI UTILS
+    window.showSlider = function(id) { 
+        document.querySelectorAll('.slider:not(#login-overlay)').forEach(s => s.style.display = 'none'); 
+        const el = document.getElementById(id);
+        if(el) el.style.display = 'flex'; 
+    };
+
+    window.hideAllSliders = function() { 
+        document.querySelectorAll('.slider:not(#login-overlay)').forEach(s => s.style.display = 'none'); 
+    };
+
+    window.openRank = async function() {
+        showSlider('rank-display');
+        // Quick refresh of rank when opening
+        if (currentUser.email) {
+            const { data } = await supa.from('students').select('*').eq('email', currentUser.email).maybeSingle();
+            if (data) updateRankUI(data);
+        }
+    };
+
+    // --- 3. AUTH STATE & LOGIC ---
     supa.auth.onAuthStateChange(async (event, session) => {
+        // Handle OAuth Redirect Hash
         if (event === 'SIGNED_IN' && window.location.hash.includes('access_token')) {
             window.history.replaceState(null, null, window.location.pathname);
         }
@@ -334,6 +410,7 @@
         const userDisplay = document.getElementById('user-id-display');
         const logoutBtn = document.getElementById('logout-btn');
 
+        // LOGGED OUT
         if (!session) {
             document.getElementById('login-overlay').style.display = 'flex';
             document.getElementById('main-dashboard').classList.remove('active');
@@ -342,6 +419,7 @@
             return;
         }
 
+        // LOGGED IN
         currentUser.id = session.user.id;
         currentUser.email = session.user.email;
         currentUser.name = session.user.user_metadata.full_name || session.user.email;
@@ -350,7 +428,8 @@
         supa.from('students').update({ email: currentUser.email }).ilike('name', currentUser.name.trim()).then();
 
         if (!isInitialized) {
-            console.log("✅ Logged in as:", currentUser.name);
+            console.log("✅ Session Active for:", currentUser.name);
+            
             if (userDisplay) {
                 userDisplay.innerText = `OPERATOR: ${currentUser.name}`;
                 userDisplay.style.display = 'block';
@@ -366,8 +445,10 @@
         }
     });
 
-    // --- 5. DATA REFRESHER ---
+    // --- 4. DATA SYNC (The "Wake Up" Logic) ---
     async function refreshAllData() {
+        console.log("🔄 Syncing Data...");
+        
         // Fetch Profile
         const { data: student } = await supa.from('students').select('*').eq('email', currentUser.email).maybeSingle();
         if (student) updateRankUI(student);
@@ -390,83 +471,7 @@
         });
     }
 
-    // --- 6. FORM LOGIC ---
-    function showHelpForm(type) {
-        activeHelpType = type;
-        document.getElementById('form-title').innerText = type + " Request";
-        const btn = document.getElementById('submit-help-btn');
-        const txtBox = document.getElementById('detail-text');
-        const detailArea = document.getElementById('detail-area');
-
-        if (btn) { btn.innerText = "SEND REQUEST"; btn.disabled = false; }
-        if (txtBox) txtBox.value = ""; 
-        
-        // Show/Hide text box based on type
-        if (detailArea) {
-            detailArea.style.display = (type === 'Question' || type === 'Hazard') ? 'flex' : 'none';
-        }
-        
-        showSlider('help-form');
-    }
-
-    // --- 7. SEND MESSAGE (WITH TIMEOUT) ---
-    async function submitHelp() {
-        const btn = document.getElementById('submit-help-btn');
-        const detailsInput = document.getElementById('detail-text');
-        const rawText = (detailsInput && detailsInput.offsetParent !== null) ? detailsInput.value.trim() : ""; 
-
-        btn.disabled = true;
-        btn.innerText = "SENDING...";
-
-        // 4 Second Timeout Protection
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Network Timeout")), 4000));
-
-        try {
-            // Check Duplicates
-            if (['Test', 'Restroom'].includes(activeHelpType)) {
-                const { data } = await Promise.race([
-                    supa.from('help_requests').select('id').eq('student_id', currentUser.id).eq('type', activeHelpType).eq('status', 'pending'),
-                    timeoutPromise
-                ]);
-                if (data && data.length > 0) throw new Error("Request already pending.");
-            }
-
-            let finalDetails = rawText || "Standard Request";
-            
-            // Send
-            const { error } = await Promise.race([
-                supa.from('help_requests').insert([{ 
-                    student_id: currentUser.id, student_name: currentUser.name, type: activeHelpType, details: finalDetails, status: 'pending' 
-                }]),
-                timeoutPromise
-            ]);
-
-            if (error) throw error;
-
-            btn.innerText = "SENT!";
-            setTimeout(() => { 
-                btn.disabled = false; btn.innerText = "SEND REQUEST"; 
-                if (detailsInput) detailsInput.value = ""; 
-                hideAllSliders(); 
-            }, 1000);
-
-        } catch (err) {
-            console.error(err);
-            btn.disabled = false;
-            if (err.message === "Network Timeout" || err.message.includes("fetch")) {
-                alert("⚠️ Network stuck. Reloading page...");
-                window.location.reload(); 
-            } else if (err.message.includes("already pending")) {
-                btn.innerText = "WAIT";
-                alert("You already have a request waiting!");
-            } else {
-                btn.innerText = "RETRY";
-                alert("Error: " + err.message);
-            }
-        }
-    }
-
-    // --- 8. UI HELPERS ---
+    // --- 5. UI UPDATERS ---
     function updateRankUI(data) {
         const fields = [{id:'r-type',k:'typing'}, {id:'r-os',k:'chrome'}, {id:'r-sheet',k:'sheets'}, {id:'r-web',k:'web'}];
         fields.forEach(f => {
@@ -497,39 +502,35 @@
         statusText.innerText = icons[m] || icons['collaborate'];
     }
 
-    function showSlider(id) { 
-        document.querySelectorAll('.slider:not(#login-overlay)').forEach(s => s.style.display = 'none'); 
-        document.getElementById(id).style.display = 'flex'; 
-    }
-    function hideAllSliders() { 
-        document.querySelectorAll('.slider:not(#login-overlay)').forEach(s => s.style.display = 'none'); 
-    }
-    
-    async function openRank() {
-        showSlider('rank-display');
-        const { data } = await supa.from('students').select('*').eq('email', currentUser.email).maybeSingle();
-        if (data) updateRankUI(data);
-    }
+    // --- 6. EVENT LISTENERS ---
+    document.addEventListener('DOMContentLoaded', () => {
+        // Wire up static click listeners that don't depend on HTML attributes
+        const doNowContainer = document.getElementById('donow-link-container');
+        if (doNowContainer) doNowContainer.onclick = () => {
+            if (cachedDoNowUrl) window.open(cachedDoNowUrl, '_blank');
+            else alert("No link provided for this Do Now.");
+        };
 
-    async function signInWithGoogle() {
-        await supa.auth.signInWithOAuth({
-            provider: 'google',
-            options: { redirectTo: window.location.origin + window.location.pathname }
-        });
-    }
+        const logoutBtn = document.getElementById('logout-btn');
+        if(logoutBtn) logoutBtn.onclick = window.handleSignOut;
+    });
+
+    // Wake Up Handler
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+             console.log("👁️ Tab Woke Up");
+             setTimeout(refreshAllData, 500);
+        }
+    });
 
     function googleTranslateElementInit() {
         new google.translate.TranslateElement({pageLanguage: 'en', includedLanguages: 'en,pt,es', layout: google.translate.TranslateElement.InlineLayout.SIMPLE}, 'google_translate_element');
     }
-    
-    // Wake Up Handler
-    document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') setTimeout(refreshAllData, 500);
-    });
 </script>
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
 
