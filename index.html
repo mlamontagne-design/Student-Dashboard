@@ -15,31 +15,31 @@
         }
 
         /* --- GOOGLE TRANSLATE OVERRIDES --- */
-       #translate-wrapper { 
-    position: absolute; 
-    top: 50%;
-    left: 20px; 
-    transform: translateY(-50%); 
-    z-index: 1000; 
-    background: transparent; /* Removed the grey box */
-    padding: 2px 8px; 
-    border: none; /* Removed the dark outline */
-    height: 32px; 
-    display: flex;
-    align-items: center;
-}
+        #translate-wrapper { 
+            position: absolute; 
+            top: 50%;
+            left: 20px; 
+            transform: translateY(-50%); 
+            z-index: 1000; 
+            background: transparent; 
+            padding: 2px 8px; 
+            border: none; 
+            height: 32px; 
+            display: flex;
+            align-items: center;
+        }
 
-#translate-wrapper:hover {
-    border-color: var(--accent-blue);
-}
+        #translate-wrapper:hover {
+            border-color: var(--accent-blue);
+        }
         .goog-te-gadget { font-size: 0 !important; color: transparent !important; }
         .goog-te-gadget .goog-te-combo { 
-    background: rgba(0, 0, 0, 0.2) !important; /* Slight dark tint for readability */
-    color: #fff !important; 
-    border: 1px solid rgba(255, 255, 255, 0.3) !important;
-    border-radius: 4px;
-    padding: 2px;
-}
+            background: rgba(0, 0, 0, 0.2) !important; 
+            color: #fff !important; 
+            border: 1px solid rgba(255, 255, 255, 0.3) !important;
+            border-radius: 4px;
+            padding: 2px;
+        }
         .goog-logo-link, .goog-te-gadget span, .goog-te-banner-frame { display: none !important; }
 
         * { box-sizing: border-box; }
@@ -77,14 +77,12 @@
         
         .form-content { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
         
-        /* This makes the wrapper fill the slider */
-        /* This container will now expand to fill the gap */
         #detail-area {
             width: 100%;
-            display: none; /* Controlled by JS */
+            display: none; 
             flex-direction: column;
-            flex: 1; /* Key: Take up all remaining vertical space */
-            min-height: 0; /* Prevents flex items from bulging past parent */
+            flex: 1; 
+            min-height: 0; 
             margin: 10px 0;
         }
 
@@ -95,7 +93,7 @@
             padding: 15px; 
             border-radius: 12px; 
             width: 100%; 
-            height: 100%; /* Fill the flex container */
+            height: 100%; 
             font-size: 1.1rem; 
             outline: none; 
             resize: none;
@@ -126,44 +124,42 @@
         .logged-in-as { font-size: 0.8rem; color: var(--accent-green); font-weight: bold; margin-bottom: 5px;}
         .back { color: #666; cursor: pointer; font-size: 0.85rem; text-decoration: underline; padding: 5px; }
         .user-control-group {
-    position: absolute;
-    right: 20px;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
-}
+            position: absolute;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 4px;
+        }
 
-#user-id-display {
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    opacity: 0.8;
-    color: inherit; /* Inherits black or white from the status bar logic */
-}
+        #user-id-display {
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            opacity: 0.8;
+            color: inherit; 
+        }
 
-/* Ensure the logout button doesn't have absolute positioning anymore 
-   so it sits nicely below the name */
-.logout-btn {
-    position: static; 
-    background: #1a1a1a;
-    color: #ff5252;
-    border: 2px solid #ff5252;
-    padding: 4px 12px;
-    border-radius: 6px;
-    font-size: 0.75rem;
-    font-weight: 800;
-    cursor: pointer;
-    display: none;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-}
+        .logout-btn {
+            position: static; 
+            background: #1a1a1a;
+            color: #ff5252;
+            border: 2px solid #ff5252;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 800;
+            cursor: pointer;
+            display: none;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
 
-.logout-btn:hover {
-    background: #ff5252;
-    color: white;
-    transform: scale(1.05);
-}
+        .logout-btn:hover {
+            background: #ff5252;
+            color: white;
+            transform: scale(1.05);
+        }
     </style>
 </head>
 <body>
@@ -280,7 +276,6 @@
 
     // --- AUTH LOGIC ---
     async function signInWithGoogle() {
-        // Simple redirect to current origin
         const { error } = await supa.auth.signInWithOAuth({
             provider: 'google',
             options: { 
@@ -291,17 +286,20 @@
         if (error) alert("Login failed: " + error.message);
     }
 
+    async function handleSignOut() {
+        await supa.auth.signOut();
+        localStorage.clear();
+        window.location.href = window.location.pathname; 
+    }
+
     // --- MAIN EVENT LISTENER ---
     supa.auth.onAuthStateChange(async (event, session) => {
-        console.log(`📣 Auth Event: ${event}`); // Debugging Log
+        console.log(`📣 Auth Event: ${event}`);
 
         const logoutBtn = document.getElementById('logout-btn');
         const userDisplay = document.getElementById('user-id-display');
 
-        // --- 🛑 THE FIX: HASH GUARD 🛑 ---
-        // If we just came back from Google, the URL has an '#access_token'.
-        // Supabase fires 'SIGNED_OUT' briefly before processing it.
-        // We MUST ignore 'SIGNED_OUT' if that token is present.
+        // --- HASH GUARD ---
         if (event === 'SIGNED_OUT' && window.location.hash.includes('access_token')) {
             console.log("⏳ Ignoring SIGNED_OUT (Processing OAuth Token...)");
             return; 
@@ -360,7 +358,6 @@
             document.getElementById('login-overlay').style.display = 'none';
             document.getElementById('main-dashboard').classList.add('active');
 
-            // Clear the hash from URL to look clean (optional)
             if (window.location.hash) {
                 window.history.replaceState(null, null, window.location.pathname);
             }
@@ -377,6 +374,37 @@
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'students', filter: `email=eq.${userEmail}` }, 
             (payload) => updateRankUI(payload.new))
             .subscribe();
+    }
+
+    // --- ROBUST DATA FETCHING (NEW) ---
+    async function fetchStudentProfile(email) {
+        if (!email) return;
+        
+        console.log("🔄 Fetching student profile...");
+        const { data, error } = await supa
+            .from('students')
+            .select('*')
+            .eq('email', email)
+            .maybeSingle();
+
+        if (error) {
+            console.error("Fetch Error:", error);
+            // If auth error, try to heal
+            if (error.code === 'PGRST301' || error.message.includes("JWT")) {
+                 console.log("♻️ Token expired. Refreshing session...");
+                 const { data: refreshData } = await supa.auth.refreshSession();
+                 if (refreshData.session) {
+                     fetchStudentProfile(email); // Retry
+                 }
+            }
+            return;
+        }
+
+        if (data) {
+            updateRankUI(data);
+        } else {
+            console.log("Student record not found for this email.");
+        }
     }
 
     function updateRankUI(data) {
@@ -441,8 +469,8 @@
 
     async function openRank() {
         showSlider('rank-display');
-        const { data } = await supa.from('students').select('*').eq('email', currentUser.email).maybeSingle(); 
-        if (data) updateRankUI(data);
+        // Use the robust fetcher instead of a direct call
+        await fetchStudentProfile(currentUser.email);
     }
 
     // --- HELP REQUEST SYSTEM (STRICT MODE) ---
@@ -455,19 +483,15 @@
         const txtBox = document.getElementById('detail-text');
         const detailArea = document.getElementById('detail-area');
 
-        // KILL old timers to prevent "WAIT" from reappearing
         if (buttonResetTimer) clearTimeout(buttonResetTimer);
 
-        // HARD RESET Button State
         if (btn) {
             btn.innerText = "SEND REQUEST";
             btn.disabled = false;
         }
 
-        // RESET Text Box
         if (txtBox) txtBox.value = ""; 
 
-        // Show text box ONLY for Question or Hazard
         if (detailArea) {
             detailArea.style.display = (type === 'Question' || type === 'Hazard') ? 'flex' : 'none';
         }
@@ -475,14 +499,10 @@
         showSlider('help-form');
     }
 
-    // STRICT TRANSLATION: Throws error on timeout or failure
+    // STRICT TRANSLATION
     async function translateStrict(text) {
         if (!text || text === "Standard Request") return text;
-
-        // 4 Second Timeout
         const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Translation Timeout")), 4000));
-
-        // The translation fetch
         const translation = fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURI(text)}`)
             .then(res => {
                 if (!res.ok) throw new Error("Translation Service Error");
@@ -493,7 +513,6 @@
                 const lang = data[2]; 
                 return (lang !== 'en' && lang !== 'en-US') ? `TR: ${translated} (Orig: ${text})` : text;
             });
-
         return await Promise.race([translation, timeout]);
     }
 
@@ -508,6 +527,11 @@
         btn.innerText = "CHECKING...";
 
         try {
+            // Check auth first
+            if (!currentUser.id) {
+                throw new Error("Connection lost. Please wait...");
+            }
+
             // 1. SELECTIVE LIMIT CHECK
             if (['Test', 'Restroom'].includes(activeHelpType)) {
                 const { data: existingRequests, error: checkError } = await supa
@@ -557,6 +581,18 @@
         } catch (err) {
             console.error("Request Failed:", err.message);
             
+            // --- NEW AUTH ERROR HANDLING ---
+            if (err.message.includes("JWT") || err.code === "PGRST301" || err.message.includes("Connection lost")) {
+                 btn.innerText = "RECONNECTING...";
+                 const { data: refresh } = await supa.auth.refreshSession();
+                 if (refresh.session) {
+                     alert("Connection restored. Please click Send again.");
+                     btn.innerText = "TRY AGAIN";
+                     btn.disabled = false;
+                     return;
+                 }
+            }
+
             if (err.message.includes("already have a pending")) {
                 btn.innerText = "WAIT"; 
                 alert("🛑 Hold on! " + err.message);
@@ -579,34 +615,43 @@
         new google.translate.TranslateElement({pageLanguage: 'en', includedLanguages: 'en,pt,es', layout: google.translate.TranslateElement.InlineLayout.SIMPLE}, 'google_translate_element');
     }
 
-    // --- LOGOUT ---
-    document.getElementById('logout-btn').addEventListener('click', async (e) => {
-        e.preventDefault();
-        await supa.auth.signOut();
-        localStorage.clear();
-        window.location.href = window.location.pathname; 
+    // --- WAKE UP HANDLER (FIXED) ---
+    document.addEventListener('visibilitychange', async () => {
+        if (document.visibilityState === 'visible') {
+            console.log("👀 Tab is active again. Checking vital signs...");
+            
+            // 1. Check if our session is still valid
+            const { data: { session }, error } = await supa.auth.getSession();
+            
+            if (error || !session) {
+                console.warn("⚠️ Session expired while in background. Attempting restore...");
+                const { data: refresh, error: refreshErr } = await supa.auth.refreshSession();
+                
+                if (refreshErr || !refresh.session) {
+                    console.error("Session dead. User must re-login.");
+                    // Optional: handleSignOut(); // Strict force logout
+                    // For now, let's just not fetch data so it doesn't error out
+                    return;
+                } else {
+                    console.log("✅ Session restored.");
+                }
+            }
+
+            // 2. Refresh the data if we have a user
+            if (currentUser.email) {
+                console.log("Refreshing data...");
+                fetchStudentProfile(currentUser.email);
+            }
+        }
     });
+
+    // Logout listener
+    document.getElementById('logout-btn').addEventListener('click', (e) => {
+        e.preventDefault();
+        handleSignOut();
+    });
+
 </script>
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
