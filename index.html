@@ -264,14 +264,12 @@
     // --- CONFIGURATION ---
     const SUPABASE_URL = "https://irthpbbqlhglvpazahft.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlydGhwYmJxbGhnbHZwYXphaGZ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzExMTkzODIsImV4cCI6MjA4NjY5NTM4Mn0.4Pp-NxsgSJO0RiNY5aM8rZ54NhUQkpYlOUib-WHgAks";
+    
+    // Initialize Supabase with a custom fetch to handle timeouts gracefully
     const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
         auth: {
             persistSession: true,
             autoRefreshToken: true,
-        },
-        global: {
-            // Increase fetch timeout to prevent premature aborts on slow school wifi
-            fetch: (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(10000) })
         }
     });
 
@@ -307,6 +305,7 @@
         const logoutBtn = document.getElementById('logout-btn');
         const userDisplay = document.getElementById('user-id-display');
 
+        // Handle Logged Out State
         if (event === 'SIGNED_OUT' || !session) {
             isInitialized = false; 
             currentUser = { id: "", name: "", email: "", verified: false };
@@ -319,11 +318,13 @@
             return; 
         }
 
+        // Handle Logged In State
         currentUser.id = session.user.id;
         currentUser.email = session.user.email;
         currentUser.name = session.user.user_metadata.full_name || session.user.email;
         currentUser.verified = true;
 
+        // Auto-Link Student Record
         if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
             try {
                 const cleanName = currentUser.name.trim(); 
@@ -341,6 +342,7 @@
             } catch (err) { console.warn("Auto-linker warning:", err); }
         }
 
+        // Initialize UI (Run Once)
         if (!isInitialized) {
             console.log("✅ Initializing Dashboard for:", currentUser.name);
             
@@ -354,14 +356,16 @@
             document.getElementById('login-overlay').style.display = 'none';
             document.getElementById('main-dashboard').classList.add('active');
 
+            // Clear URL hash
             if (window.location.hash) {
                 window.history.replaceState(null, null, window.location.pathname);
             }
 
             subscribeToRoomChanges(); 
             initStudentRealtime(currentUser.email);
-            // Small delay to ensure network is ready before first fetch
-            setTimeout(() => fetchStudentProfile(currentUser.email), 500);
+            
+            // Wait 1 second before first fetch to ensure connection is stable
+            setTimeout(() => fetchStudentProfile(currentUser.email), 1000);
             isInitialized = true; 
         }
     });
@@ -374,12 +378,10 @@
             .subscribe();
     }
 
-    // --- UPDATED FETCH FUNCTION (FIXES ABORT ERROR) ---
+    // --- FIX: QUIET FETCH FUNCTION ---
     async function fetchStudentProfile(email, retryCount = 0) {
         if (!email) return;
-        
-        // console.log("🔄 Fetching student profile..."); // Commented out to reduce console noise
-        
+
         try {
             const { data, error } = await supa
                 .from('students')
@@ -387,21 +389,23 @@
                 .eq('email', email)
                 .maybeSingle();
 
+            // If Supabase returns an error object, throw it so we catch it below
             if (error) throw error;
             
             if (data) updateRankUI(data);
 
         } catch (error) {
-            // 1. SILENTLY HANDLE ABORT ERRORS (Don't log them as errors)
+            // --- THE FIX: IGNORE ABORT ERRORS ---
+            // If the error is an AbortError, simply return. Do NOT log it.
             if (error.name === 'AbortError' || error.message.includes('AbortError') || error.message.includes('aborted')) {
-                if (retryCount < 3) { 
-                    console.log(`💤 Network sleeping. Retrying in 1s (Attempt ${retryCount + 1})...`);
-                    setTimeout(() => fetchStudentProfile(email, retryCount + 1), 1000);
+                // Optionally retry silently if it was a quick glitch
+                if (retryCount < 2) {
+                    setTimeout(() => fetchStudentProfile(email, retryCount + 1), 1500);
                 }
-                return; // Stop here, do not log "Fetch Error"
+                return; 
             }
 
-            // 2. Handle JWT Auth Error
+            // Handle Auth Errors (Token Expired)
             if (error.code === 'PGRST301' || error.message.includes("JWT")) {
                  console.log("♻️ Token expired. Refreshing session...");
                  const { data: refreshData } = await supa.auth.refreshSession();
@@ -411,7 +415,7 @@
                  return;
             }
 
-            // Only log ACTUAL errors now
+            // Only log if it is a REAL error (like database permissions)
             console.error("Fetch Error:", error);
         }
     }
@@ -435,18 +439,14 @@
     }
 
     async function subscribeToRoomChanges() {
-        // Retry logic for room settings as well
-        const fetchSettings = async (retries = 3) => {
-            const { data, error } = await supa.from('room_settings').select('*').eq('id', 1).single();
-            if (error) {
-                if (retries > 0) setTimeout(() => fetchSettings(retries - 1), 1000);
-            } else if (data) {
-                updateRoomUI(data.mode);
-                applySettingsUI(data);
-            }
-        };
-        fetchSettings();
+        // Initial Fetch
+        const { data, error } = await supa.from('room_settings').select('*').eq('id', 1).single();
+        if (data) {
+            updateRoomUI(data.mode);
+            applySettingsUI(data);
+        }
 
+        // Realtime Subscription
         supa.channel('room_updates')
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_settings', filter: 'id=eq.1' }, 
             (payload) => { updateRoomUI(payload.new.mode); applySettingsUI(payload.new); })
@@ -491,7 +491,6 @@
     }
 
     // --- HELP REQUEST SYSTEM ---
-
     function showHelpForm(type) {
         activeHelpType = type;
         document.getElementById('form-title').innerText = type + " Request";
@@ -516,10 +515,10 @@
         showSlider('help-form');
     }
 
+    // Translation with Timeout Protection
     async function translateStrict(text) {
         if (!text || text === "Standard Request") return text;
         
-        // Timeout wrapper for translation
         const fetchWithTimeout = (url, ms) => {
             const controller = new AbortController();
             const promise = fetch(url, { signal: controller.signal });
@@ -535,7 +534,7 @@
             const lang = data[2]; 
             return (lang !== 'en' && lang !== 'en-US') ? `TR: ${translated} (Orig: ${text})` : text;
         } catch (e) {
-            console.warn("Translation failed, sending original text.");
+            console.warn("Translation failed or timed out, sending original text.");
             return text;
         }
     }
@@ -596,7 +595,7 @@
             }, 1000);
 
         } catch (err) {
-            // Updated Error Handling here too
+            // Updated Error Handling
             if (err.name === 'AbortError' || err.message.includes("AbortError")) {
                  btn.innerText = "RETRYING...";
                  setTimeout(submitHelp, 1000);
@@ -631,18 +630,16 @@
         new google.translate.TranslateElement({pageLanguage: 'en', includedLanguages: 'en,pt,es', layout: google.translate.TranslateElement.InlineLayout.SIMPLE}, 'google_translate_element');
     }
 
-    // --- WAKE UP HANDLER (PREVENTS RACE CONDITIONS) ---
+    // --- WAKE UP HANDLER (FIXED) ---
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
-            console.log("👀 Tab active. Synchronizing...");
-            // Clear any potentially pending timeouts from previous sleep cycles
-            // Wait 1s full second before retrying data fetch
+            // Wait 1.5 seconds after waking up to let the network stabilize
             setTimeout(async () => {
                 if (currentUser.email) {
                     const { data: { session } } = await supa.auth.getSession();
                     if (session) fetchStudentProfile(currentUser.email);
                 }
-            }, 1000); 
+            }, 1500); 
         }
     });
 
@@ -654,4 +651,5 @@
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
