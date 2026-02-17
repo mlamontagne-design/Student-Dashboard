@@ -499,16 +499,22 @@ async function translateIfNecessary(text) {
 
 async function submitHelp() {
     const btn = document.getElementById('submit-help-btn');
-    // SAFE CHECK: Does the text box actually exist?
+    
+    // 1. SAFE CHECK: Does the text box actually exist?
     const detailsInput = document.getElementById('help-details');
     
-    // If the box exists, grab the text. If not, use the help type as the text.
-    const rawDetails = detailsInput ? detailsInput.value : activeHelpType;
+    // If the box exists, grab the text. If not, use the help type itself as the text.
+    let rawDetails = "";
+    if (detailsInput) {
+        rawDetails = detailsInput.value;
+    } else {
+        rawDetails = activeHelpType || "Standard Request"; 
+    }
 
     btn.disabled = true;
     btn.innerText = "TRANSMITTING...";
 
-    // 1. TIMEOUT PROTECTION (In case network hangs)
+    // 2. TIMEOUT PROTECTION (In case network hangs)
     const timeout = setTimeout(() => {
         if (btn.disabled) {
             btn.disabled = false;
@@ -518,15 +524,14 @@ async function submitHelp() {
     }, 5000);
 
     try {
-        // 2. TRANSLATE IF NEEDED
-        // Only translate if there is actual text to translate
+        // 3. TRANSLATE IF NEEDED
         const finalDetails = await translateIfNecessary(rawDetails);
 
         const { error } = await supa.from('help_requests').insert([{ 
             student_id: currentUser.id, 
             student_name: currentUser.name, 
             type: activeHelpType, 
-            details: finalDetails, // Uses the safe text we grabbed above
+            details: finalDetails, 
             status: 'pending' 
         }]);
 
@@ -547,11 +552,10 @@ async function submitHelp() {
     } catch (err) {
         console.error("Help Request Failed:", err.message);
         btn.disabled = false;
-        btn.innerText = "SEND FAILED - TRY AGAIN";
-        alert("Error sending request: " + err.message);
+        btn.innerText = "SEND FAILED";
+        alert("Error: " + err.message);
     }
 }
-
 function googleTranslateElementInit() {
     new google.translate.TranslateElement({pageLanguage: 'en', includedLanguages: 'en,pt,es', layout: google.translate.TranslateElement.InlineLayout.SIMPLE}, 'google_translate_element');
 }
@@ -568,6 +572,7 @@ document.getElementById('logout-btn').addEventListener('click', async (e) => {
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
 
