@@ -499,61 +499,75 @@ async function translateIfNecessary(text) {
 
 async function submitHelp() {
     const btn = document.getElementById('submit-help-btn');
-    
-    // 1. SAFE CHECK: Does the text box actually exist?
     const detailsInput = document.getElementById('help-details');
     
-    // If the box exists, grab the text. If not, use the help type itself as the text.
-    let rawDetails = "";
-    if (detailsInput) {
-        rawDetails = detailsInput.value;
-    } else {
-        rawDetails = activeHelpType || "Standard Request"; 
-    }
+    // 1. GRAB INPUT (Safely)
+    // If the box is open, get the text. If not, empty string.
+    const rawText = detailsInput ? detailsInput.value.trim() : ""; 
 
     btn.disabled = true;
-    btn.innerText = "TRANSMITTING...";
-
-    // 2. TIMEOUT PROTECTION (In case network hangs)
-    const timeout = setTimeout(() => {
-        if (btn.disabled) {
-            btn.disabled = false;
-            btn.innerText = "RETRY SEND";
-            console.error("Transmission timed out.");
-        }
-    }, 5000);
+    btn.innerText = "CHECKING...";
 
     try {
-        // 3. TRANSLATE IF NEEDED
-        const finalDetails = await translateIfNecessary(rawDetails);
+        // 2. ANTI-SPAM CHECK
+        // "Does this student already have a pending request of this exact type?"
+        const { data: existingRequests, error: checkError } = await supa
+            .from('help_requests')
+            .select('id')
+            .eq('student_id', currentUser.id)
+            .eq('type', activeHelpType)
+            .eq('status', 'pending'); 
 
-        const { error } = await supa.from('help_requests').insert([{ 
+        if (checkError) throw checkError;
+
+        if (existingRequests && existingRequests.length > 0) {
+            throw new Error(`You already have a pending ${activeHelpType} request.`);
+        }
+
+        // 3. PREPARE MESSAGE (Translation Logic Restored)
+        btn.innerText = "TRANSMITTING...";
+        
+        let finalDetails = "Standard Request"; // Default fallback
+
+        if (rawText) {
+            // ✅ HERE IS YOUR TRANSLATION LOGIC
+            // If they typed something, we translate it before sending.
+            console.log("Translating text:", rawText);
+            finalDetails = await translateIfNecessary(rawText);
+        }
+
+        // 4. SEND TO SUPABASE
+        const { error: insertError } = await supa.from('help_requests').insert([{ 
             student_id: currentUser.id, 
             student_name: currentUser.name, 
             type: activeHelpType, 
-            details: finalDetails, 
+            details: finalDetails, // Sends either the translated text OR "Standard Request"
             status: 'pending' 
         }]);
 
-        clearTimeout(timeout); 
+        if (insertError) throw insertError;
 
-        if (error) throw error;
-
+        // 5. SUCCESS
         btn.innerText = "SENT!";
-        
-        // Reset the button after 2 seconds
         setTimeout(() => { 
             btn.disabled = false; 
             btn.innerText = "SEND REQUEST"; 
-            // Clear the text box only if it actually exists
-            if (detailsInput) detailsInput.value = "";
-        }, 2000);
+            if (detailsInput) detailsInput.value = ""; // Clear box
+            hideAllSliders(); // Close menu
+        }, 1500);
 
     } catch (err) {
-        console.error("Help Request Failed:", err.message);
+        console.error("Request Failed:", err.message);
         btn.disabled = false;
-        btn.innerText = "SEND FAILED";
-        alert("Error: " + err.message);
+        
+        // Nice error message for the spam check
+        if (err.message.includes("already have a pending")) {
+            btn.innerText = "ALREADY ACTIVE";
+            alert("Hold on! " + err.message);
+        } else {
+            btn.innerText = "SEND FAILED";
+            alert("Error: " + err.message);
+        }
     }
 }
 function googleTranslateElementInit() {
@@ -572,6 +586,7 @@ document.getElementById('logout-btn').addEventListener('click', async (e) => {
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
 
