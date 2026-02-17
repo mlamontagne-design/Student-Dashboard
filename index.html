@@ -292,36 +292,42 @@
     }
 
     // --- MAIN EVENT LISTENER ---
+    // --- MAIN EVENT LISTENER (ROBUST VERSION) ---
     supa.auth.onAuthStateChange(async (event, session) => {
-        console.log(`📣 Auth Event: ${event}`); // Debugging Log
+        console.log(`📣 Auth Event: ${event}`);
 
-        const logoutBtn = document.getElementById('logout-btn');
-        const userDisplay = document.getElementById('user-id-display');
+        // --- 🛑 IMPROVED GUARD 🛑 ---
+        // Check both Hash (#) and Search (?) for auth signals
+        const isAuthCallback = 
+            (window.location.hash && (window.location.hash.includes('access_token') || window.location.hash.includes('type=recovery'))) ||
+            (window.location.search && window.location.search.includes('code='));
 
-        // --- 🛑 THE FIX: HASH GUARD 🛑 ---
-        // If we just came back from Google, the URL has an '#access_token'.
-        // Supabase fires 'SIGNED_OUT' briefly before processing it.
-        // We MUST ignore 'SIGNED_OUT' if that token is present.
-        if (event === 'SIGNED_OUT' && window.location.hash.includes('access_token')) {
-            console.log("⏳ Ignoring SIGNED_OUT (Processing OAuth Token...)");
+        // If we are technically "signed out" but URL indicates a login is processing, STOP.
+        if (event === 'SIGNED_OUT' && isAuthCallback) {
+            console.log("⏳ Ignoring SIGNED_OUT (Login Callback in progress...)");
             return; 
         }
-
-        // 1. Handle Sign Out
+        
+        // 1. Handle Sign Out (Real Logout)
         if (event === 'SIGNED_OUT' || !session) {
-            console.log("🔒 User is signed out. Showing login.");
+            console.log("🔒 User is signed out. Resetting UI.");
             isInitialized = false; 
             currentUser = { id: "", name: "", email: "", verified: false };
+            
+            // Hide User UI
+            const userDisplay = document.getElementById('user-id-display');
+            const logoutBtn = document.getElementById('logout-btn');
             if (userDisplay) userDisplay.style.display = 'none';
             if (logoutBtn) logoutBtn.style.display = 'none';
             
+            // Show Login
             document.getElementById('login-overlay').style.display = 'flex';
             document.getElementById('main-dashboard').classList.remove('active');
             hideAllSliders();
             return; 
         }
 
-        // 2. Capture User Data
+        // 2. Capture User Data & Setup (Logged In)
         currentUser.id = session.user.id;
         currentUser.email = session.user.email;
         currentUser.name = session.user.user_metadata.full_name || session.user.email;
@@ -329,39 +335,29 @@
 
         // 3. AUTO-LINKER
         if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
-            try {
-                const cleanName = currentUser.name.trim(); 
-                const { data: studentRecord } = await supa
-                    .from('students')
-                    .select('name, email')
-                    .ilike('name', cleanName)
-                    .maybeSingle();
-
-                if (studentRecord && !studentRecord.email) {
-                    console.log("🔗 Linking email to student record...");
-                    await supa.from('students')
-                        .update({ email: currentUser.email })
-                        .ilike('name', cleanName);
-                }
-            } catch (err) { console.error("Auto-linker error:", err); }
+             // ... (Keep your existing auto-linker logic here if needed, or leave blank) ...
         }
 
         // 4. UI & LISTENERS (Run Once)
         if (!isInitialized) {
             console.log("✅ Initializing Dashboard for:", currentUser.name);
             
+            // Update User UI
+            const userDisplay = document.getElementById('user-id-display');
+            const logoutBtn = document.getElementById('logout-btn');
+            
             if (userDisplay) {
                 userDisplay.innerText = `OPERATOR: ${currentUser.name}`;
                 userDisplay.style.display = 'block';
             }
-            if (logoutBtn) logoutBtn.style.display = 'block';
+            if (logoutBtn) logoutBtn.style.display = 'block'; // Make sure this shows!
 
             document.getElementById('help-user-display').innerText = `Logged in as: ${currentUser.name}`;
             document.getElementById('login-overlay').style.display = 'none';
             document.getElementById('main-dashboard').classList.add('active');
 
-            // Clear the hash from URL to look clean (optional)
-            if (window.location.hash) {
+            // Clean URL (Optional but nice)
+            if (isAuthCallback) {
                 window.history.replaceState(null, null, window.location.pathname);
             }
 
@@ -370,7 +366,6 @@
             isInitialized = true; 
         }
     });
-
     // --- REAL-TIME UPDATES ---
     function initStudentRealtime(userEmail) {
         supa.channel('student-rank-sync')
