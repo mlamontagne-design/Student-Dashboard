@@ -261,7 +261,7 @@
     </div>
 
     <script>
-    // --- 1. CONFIGURATION ---
+    // --- 1. SETUP & CONFIG ---
     const SUPABASE_URL = "https://irthpbbqlhglvpazahft.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlydGhwYmJxbGhnbHZwYXphaGZ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzExMTkzODIsImV4cCI6MjA4NjY5NTM4Mn0.4Pp-NxsgSJO0RiNY5aM8rZ54NhUQkpYlOUib-WHgAks";
 
@@ -270,13 +270,7 @@
             persistSession: true,
             autoRefreshToken: true,
             detectSessionInUrl: true
-        },
-        // Aggressive timeout settings
-        realtime: {
-            params: {
-                eventsPerSecond: 10,
-            },
-        },
+        }
     });
 
     let currentUser = { id: "", name: "", email: "", verified: false };
@@ -284,68 +278,54 @@
     let cachedDoNowUrl = ""; 
     let isInitialized = false; 
 
-    // --- 2. NUCLEAR SIGN OUT (Fixes "Can't Sign Out") ---
-    // This function runs synchronously. It does not wait for the server.
-    // It kills the session locally and reloads the page.
-    window.handleSignOut = function() {
-        console.log("☢️ NUCLEAR SIGN OUT INITIATED");
-        try {
-            // Attempt to tell server, but don't care if it fails
-            supa.auth.signOut(); 
-        } catch (e) { /* ignore */ }
-
-        // 1. Wipe Storage
+    // --- 2. BRUTAL SIGN OUT (The Fix) ---
+    // We do NOT wait for the server. We just kill the local session.
+    function forceSignOut() {
+        console.log("💀 KILLING SESSION LOCALLY");
+        // 1. Wipe keys
         localStorage.clear();
         sessionStorage.clear();
-        
-        // 2. Hard Reload (Forces browser to clear memory cache)
-        window.location.href = window.location.pathname;
+        // 2. Force Reload
+        window.location.href = window.location.origin + window.location.pathname;
     }
 
-    // --- 3. AUTHENTICATION HANDLER ---
-    async function signInWithGoogle() {
-        await supa.auth.signInWithOAuth({
-            provider: 'google',
-            options: { 
-                redirectTo: window.location.origin + window.location.pathname,
-                queryParams: { prompt: 'select_account' }
-            }
-        });
-    }
+    // Attach listener immediately to ensure it works even if other scripts fail
+    document.addEventListener('DOMContentLoaded', () => {
+        const btn = document.getElementById('logout-btn');
+        if(btn) btn.onclick = (e) => { 
+            e.preventDefault(); 
+            forceSignOut(); 
+        };
+    });
 
+    // --- 3. AUTH STATE & INITIALIZATION ---
     supa.auth.onAuthStateChange(async (event, session) => {
-        // Clean URL hash if present
         if (event === 'SIGNED_IN' && window.location.hash.includes('access_token')) {
             window.history.replaceState(null, null, window.location.pathname);
         }
 
-        const logoutBtn = document.getElementById('logout-btn');
         const userDisplay = document.getElementById('user-id-display');
+        const logoutBtn = document.getElementById('logout-btn');
 
-        // LOGGED OUT
-        if (event === 'SIGNED_OUT' || !session) {
-            isInitialized = false; 
-            currentUser = { id: "", name: "", email: "", verified: false };
-            if (userDisplay) userDisplay.style.display = 'none';
-            if (logoutBtn) logoutBtn.style.display = 'none';
-            
+        if (!session) {
+            // Logged Out
             document.getElementById('login-overlay').style.display = 'flex';
             document.getElementById('main-dashboard').classList.remove('active');
-            hideAllSliders();
-            return; 
+            if (userDisplay) userDisplay.style.display = 'none';
+            if (logoutBtn) logoutBtn.style.display = 'none';
+            return;
         }
 
-        // LOGGED IN
+        // Logged In
         currentUser.id = session.user.id;
         currentUser.email = session.user.email;
         currentUser.name = session.user.user_metadata.full_name || session.user.email;
-        
-        // Auto-Link (Fire and Forget)
-        linkStudentAccount();
 
-        // UI Initialization (Only once per page load)
+        // Auto-Link (Fire & Forget)
+        supa.from('students').update({ email: currentUser.email }).ilike('name', currentUser.name.trim()).then();
+
         if (!isInitialized) {
-            console.log("✅ Session Active:", currentUser.name);
+            console.log("✅ Logged in as:", currentUser.name);
             
             if (userDisplay) {
                 userDisplay.innerText = `OPERATOR: ${currentUser.name}`;
@@ -356,88 +336,115 @@
             document.getElementById('help-user-display').innerText = `Logged in as: ${currentUser.name}`;
             document.getElementById('login-overlay').style.display = 'none';
             document.getElementById('main-dashboard').classList.add('active');
-
-            // Force a fresh subscription setup
-            restartRealtimeConnections();
             
-            isInitialized = true; 
+            // Start Data Flow
+            refreshAllData(); 
+            isInitialized = true;
         }
     });
 
-    // --- 4. THE DEFIBRILLATOR (Fixes "Zombie Connection") ---
-    // This kills all old connections and starts fresh.
-    async function restartRealtimeConnections() {
-        console.log("🔌 (Re)Starting Connections...");
+    // --- 4. DATA REFRESHER (The "Wake Up" Fix) ---
+    async function refreshAllData() {
+        console.log("🔄 Refreshing Data...");
         
-        // 1. Kill everything
-        await supa.removeAllChannels();
+        // 1. Fetch Profile
+        const { data: student } = await supa.from('students').select('*').eq('email', currentUser.email).maybeSingle();
+        if (student) updateRankUI(student);
 
-        // 2. Fetch Static Data
-        fetchStudentProfile(currentUser.email);
+        // 2. Fetch Room Settings
+        const { data: room } = await supa.from('room_settings').select('*').eq('id', 1).maybeSingle();
+        if (room) { updateRoomUI(room.mode); applySettingsUI(room); }
 
-        // 3. Start Room Listener
-        const roomChannel = supa.channel('room_updates')
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_settings', filter: 'id=eq.1' }, 
-            (payload) => { updateRoomUI(payload.new.mode); applySettingsUI(payload.new); })
-            .subscribe((status) => {
-                if (status === 'SUBSCRIBED') {
-                    console.log("✅ Connected to Room Settings");
-                    // Fetch initial state once connected
-                    supa.from('room_settings').select('*').eq('id', 1).single()
-                        .then(({data}) => { if(data) { updateRoomUI(data.mode); applySettingsUI(data); } });
-                }
-            });
+        // 3. Re-Subscribe to Realtime (Kill old ones first)
+        supa.removeAllChannels().then(() => {
+            supa.channel('room_updates')
+                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_settings', filter: 'id=eq.1' }, 
+                (payload) => { updateRoomUI(payload.new.mode); applySettingsUI(payload.new); })
+                .subscribe();
 
-        // 4. Start Student Rank Listener
-        supa.channel('student-rank-sync')
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'students', filter: `email=eq.${currentUser.email}` }, 
-            (payload) => updateRankUI(payload.new))
-            .subscribe();
+            supa.channel('student_updates')
+                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'students', filter: `email=eq.${currentUser.email}` }, 
+                (payload) => updateRankUI(payload.new))
+                .subscribe();
+        });
     }
 
-    // --- 5. WAKE UP HANDLER ---
-    document.addEventListener('visibilitychange', async () => {
+    // --- 5. SEND MESSAGE (The "Ghost Message" Fix) ---
+    async function submitHelp() {
+        const btn = document.getElementById('submit-help-btn');
+        const detailsInput = document.getElementById('detail-text');
+        const rawText = (detailsInput && detailsInput.offsetParent !== null) ? detailsInput.value.trim() : ""; 
+
+        btn.disabled = true;
+        btn.innerText = "SENDING...";
+
+        // TIMEOUT WRAPPER: If Supabase takes > 4 seconds, we assume failure.
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Network Timeout")), 4000)
+        );
+
+        try {
+            // 1. Check Duplicates
+            if (['Test', 'Restroom'].includes(activeHelpType)) {
+                const { data } = await Promise.race([
+                    supa.from('help_requests').select('id').eq('student_id', currentUser.id).eq('type', activeHelpType).eq('status', 'pending'),
+                    timeoutPromise
+                ]);
+                if (data && data.length > 0) throw new Error("Request already pending.");
+            }
+
+            // 2. Prepare Data
+            let finalDetails = rawText || "Standard Request";
+            
+            // 3. Send with Timeout Protection
+            const insertOperation = supa.from('help_requests').insert([{ 
+                student_id: currentUser.id, 
+                student_name: currentUser.name, 
+                type: activeHelpType, 
+                details: finalDetails, 
+                status: 'pending' 
+            }]);
+
+            const { error } = await Promise.race([insertOperation, timeoutPromise]);
+
+            if (error) throw error;
+
+            // 4. Success
+            btn.innerText = "SENT!";
+            setTimeout(() => { 
+                btn.disabled = false; 
+                btn.innerText = "SEND REQUEST"; 
+                if (detailsInput) detailsInput.value = ""; 
+                hideAllSliders(); 
+            }, 1000);
+
+        } catch (err) {
+            console.error("Submission Error:", err);
+            btn.disabled = false;
+
+            if (err.message === "Network Timeout" || err.message.includes("fetch")) {
+                alert("⚠️ Network stuck. Reloading page to fix connection.");
+                window.location.reload(); // Auto-fix the zombie state
+            } else if (err.message.includes("already pending")) {
+                btn.innerText = "WAIT";
+                alert("You already have a request waiting!");
+            } else {
+                btn.innerText = "RETRY";
+                alert("Error: " + err.message);
+            }
+        }
+    }
+
+    // --- 6. TAB WAKE UP DETECTOR ---
+    document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
-            console.log("👁️ Tab Waking Up...");
-            
-            // CHECK 1: Is the token expired?
-            const { data: { session }, error } = await supa.auth.getSession();
-            
-            if (error || !session) {
-                console.log("❌ Session died while sleeping. Logging out.");
-                window.handleSignOut();
-                return;
-            }
-
-            // CHECK 2: Force Refresh the token to be safe
-            const { error: refreshError } = await supa.auth.refreshSession();
-            if (refreshError) {
-                console.log("❌ Could not refresh token. Logging out.");
-                window.handleSignOut();
-                return;
-            }
-
-            // CHECK 3: Restart Realtime (The Defibrillator)
-            // We wait 500ms for the network card to wake up fully
-            setTimeout(restartRealtimeConnections, 500);
+            console.log("👁️ Tab Woke Up. Verifying connection...");
+            // Force a data refresh when tab comes back
+            setTimeout(refreshAllData, 500);
         }
     });
 
-    // --- DATA LOGIC ---
-    async function linkStudentAccount() {
-        const cleanName = currentUser.name.trim(); 
-        const { data } = await supa.from('students').select('email').ilike('name', cleanName).maybeSingle();
-        if (data && !data.email) {
-            await supa.from('students').update({ email: currentUser.email }).ilike('name', cleanName);
-        }
-    }
-
-    async function fetchStudentProfile(email) {
-        if (!email) return;
-        const { data, error } = await supa.from('students').select('*').eq('email', email).maybeSingle();
-        if (!error && data) updateRankUI(data);
-    }
-
+    // --- UI HELPERS ---
     function updateRankUI(data) {
         const fields = [{id:'r-type',k:'typing'}, {id:'r-os',k:'chrome'}, {id:'r-sheet',k:'sheets'}, {id:'r-web',k:'web'}];
         fields.forEach(f => {
@@ -468,10 +475,13 @@
         statusText.innerText = icons[m] || icons['collaborate'];
     }
 
-    // --- UI HELPERS ---
-    function showSlider(id) { hideAllSliders(); document.getElementById(id).style.display = 'flex'; }
-    function hideAllSliders() { document.querySelectorAll('.slider:not(#login-overlay)').forEach(s => s.style.display = 'none'); }
-    async function openRank() { showSlider('rank-display'); await fetchStudentProfile(currentUser.email); }
+    function showSlider(id) { 
+        document.querySelectorAll('.slider:not(#login-overlay)').forEach(s => s.style.display = 'none'); 
+        document.getElementById(id).style.display = 'flex'; 
+    }
+    function hideAllSliders() { 
+        document.querySelectorAll('.slider:not(#login-overlay)').forEach(s => s.style.display = 'none'); 
+    }
     
     document.getElementById('donow-link-container').onclick = () => {
         if (cachedDoNowUrl) window.open(cachedDoNowUrl, '_blank');
@@ -491,85 +501,17 @@
         showSlider('help-form');
     }
 
-    // --- SUBMISSION SYSTEM (Fixes "Can't Send Message") ---
-    async function translateStrict(text) {
-        if (!text || text === "Standard Request") return text;
-        try {
-            const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURI(text)}`);
-            if (!res.ok) throw new Error("Translation Error");
-            const data = await res.json();
-            const translated = data[0][0][0];
-            const lang = data[2]; 
-            return (lang !== 'en' && lang !== 'en-US') ? `TR: ${translated} (Orig: ${text})` : text;
-        } catch (e) { return text; }
+    async function signInWithGoogle() {
+        await supa.auth.signInWithOAuth({
+            provider: 'google',
+            options: { redirectTo: window.location.origin + window.location.pathname }
+        });
     }
 
-    async function submitHelp() {
-        const btn = document.getElementById('submit-help-btn');
-        const detailsInput = document.getElementById('detail-text');
-        const rawText = (detailsInput && detailsInput.offsetParent !== null) ? detailsInput.value.trim() : ""; 
-
-        btn.disabled = true;
-        btn.innerText = "CHECKING...";
-
-        try {
-            // STEP 1: VERIFY CONNECTION BEFORE SENDING
-            const { error: sessionError } = await supa.auth.getSession();
-            if (sessionError) {
-                // Try one refresh
-                const { error: refreshErr } = await supa.auth.refreshSession();
-                if (refreshErr) throw new Error("Session Expired. Please Reload.");
-            }
-
-            // STEP 2: DUPLICATE CHECK
-            if (['Test', 'Restroom'].includes(activeHelpType)) {
-                const { data, error } = await supa.from('help_requests')
-                    .select('id')
-                    .eq('student_id', currentUser.id)
-                    .eq('type', activeHelpType)
-                    .eq('status', 'pending');
-                
-                if (error) throw error;
-                if (data.length > 0) throw new Error(`You already have a pending request.`);
-            }
-
-            // STEP 3: PREPARE AND SEND
-            btn.innerText = "SENDING...";
-            let finalDetails = rawText ? await translateStrict(rawText) : "Standard Request"; 
-
-            const { error: insertError } = await supa.from('help_requests').insert([{ 
-                student_id: currentUser.id, 
-                student_name: currentUser.name, 
-                type: activeHelpType, 
-                details: finalDetails, 
-                status: 'pending' 
-            }]);
-
-            if (insertError) throw insertError;
-
-            // SUCCESS
-            btn.innerText = "SENT!";
-            setTimeout(() => { 
-                btn.disabled = false; 
-                btn.innerText = "SEND REQUEST"; 
-                if (detailsInput) detailsInput.value = ""; 
-                hideAllSliders(); 
-            }, 1000);
-
-        } catch (err) {
-            console.error("Submit Error:", err);
-            if (err.message.includes("pending")) {
-                alert("You already have a request waiting.");
-                btn.innerText = "WAIT";
-            } else if (err.message.includes("Session") || err.message.includes("JWT")) {
-                alert("Your connection timed out. Reloading...");
-                window.location.reload();
-            } else {
-                alert("Error: " + err.message);
-                btn.innerText = "RETRY";
-                btn.disabled = false;
-            }
-        }
+    async function openRank() {
+        showSlider('rank-display');
+        const { data } = await supa.from('students').select('*').eq('email', currentUser.email).maybeSingle();
+        if (data) updateRankUI(data);
     }
 
     function googleTranslateElementInit() {
@@ -579,6 +521,7 @@
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
 
