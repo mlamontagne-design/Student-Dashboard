@@ -266,11 +266,7 @@
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlydGhwYmJxbGhnbHZwYXphaGZ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzExMTkzODIsImV4cCI6MjA4NjY5NTM4Mn0.4Pp-NxsgSJO0RiNY5aM8rZ54NhUQkpYlOUib-WHgAks";
 
     const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        auth: {
-            persistSession: true,
-            autoRefreshToken: true,
-            detectSessionInUrl: true
-        }
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
     });
 
     let currentUser = { id: "", name: "", email: "", verified: false };
@@ -278,27 +274,58 @@
     let cachedDoNowUrl = ""; 
     let isInitialized = false; 
 
-    // --- 2. BRUTAL SIGN OUT (The Fix) ---
-    // We do NOT wait for the server. We just kill the local session.
+    // --- 2. UI WIRING (THE MISSING LINK) ---
+    // This runs as soon as the page loads to hook up all buttons
+    document.addEventListener('DOMContentLoaded', () => {
+        
+        // 1. Hook up Help Buttons (Adjust IDs if your HTML uses different ones)
+        const helpMap = {
+            'btn-question': 'Question',
+            'btn-hazard': 'Hazard',
+            'btn-restroom': 'Restroom',
+            'btn-test': 'Test',
+            'btn-counselor': 'Counselor'
+        };
+
+        for (const [id, type] of Object.entries(helpMap)) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.onclick = () => showHelpForm(type);
+                el.style.cursor = "pointer"; // Visual cue
+            }
+        }
+
+        // 2. Hook up Submit & Cancel
+        const subBtn = document.getElementById('submit-help-btn');
+        if (subBtn) subBtn.onclick = submitHelp;
+        
+        const closeBtns = document.querySelectorAll('.close-slider, .cancel-btn');
+        closeBtns.forEach(btn => btn.onclick = hideAllSliders);
+
+        // 3. Hook up Rank & Do Now
+        const rankBtn = document.getElementById('rank-btn'); // or whatever ID opens the rank
+        if (rankBtn) rankBtn.onclick = openRank;
+
+        const doNowContainer = document.getElementById('donow-link-container');
+        if (doNowContainer) doNowContainer.onclick = () => {
+            if (cachedDoNowUrl) window.open(cachedDoNowUrl, '_blank');
+            else alert("No link provided for this Do Now.");
+        };
+
+        // 4. Hook up Logout
+        const logoutBtn = document.getElementById('logout-btn');
+        if(logoutBtn) logoutBtn.onclick = (e) => { e.preventDefault(); forceSignOut(); };
+    });
+
+    // --- 3. BRUTAL SIGN OUT ---
     function forceSignOut() {
         console.log("💀 KILLING SESSION LOCALLY");
-        // 1. Wipe keys
         localStorage.clear();
         sessionStorage.clear();
-        // 2. Force Reload
         window.location.href = window.location.origin + window.location.pathname;
     }
 
-    // Attach listener immediately to ensure it works even if other scripts fail
-    document.addEventListener('DOMContentLoaded', () => {
-        const btn = document.getElementById('logout-btn');
-        if(btn) btn.onclick = (e) => { 
-            e.preventDefault(); 
-            forceSignOut(); 
-        };
-    });
-
-    // --- 3. AUTH STATE & INITIALIZATION ---
+    // --- 4. AUTH & INITIALIZATION ---
     supa.auth.onAuthStateChange(async (event, session) => {
         if (event === 'SIGNED_IN' && window.location.hash.includes('access_token')) {
             window.history.replaceState(null, null, window.location.pathname);
@@ -308,7 +335,6 @@
         const logoutBtn = document.getElementById('logout-btn');
 
         if (!session) {
-            // Logged Out
             document.getElementById('login-overlay').style.display = 'flex';
             document.getElementById('main-dashboard').classList.remove('active');
             if (userDisplay) userDisplay.style.display = 'none';
@@ -316,17 +342,15 @@
             return;
         }
 
-        // Logged In
         currentUser.id = session.user.id;
         currentUser.email = session.user.email;
         currentUser.name = session.user.user_metadata.full_name || session.user.email;
 
-        // Auto-Link (Fire & Forget)
+        // Auto-Link
         supa.from('students').update({ email: currentUser.email }).ilike('name', currentUser.name.trim()).then();
 
         if (!isInitialized) {
             console.log("✅ Logged in as:", currentUser.name);
-            
             if (userDisplay) {
                 userDisplay.innerText = `OPERATOR: ${currentUser.name}`;
                 userDisplay.style.display = 'block';
@@ -337,25 +361,22 @@
             document.getElementById('login-overlay').style.display = 'none';
             document.getElementById('main-dashboard').classList.add('active');
             
-            // Start Data Flow
             refreshAllData(); 
             isInitialized = true;
         }
     });
 
-    // --- 4. DATA REFRESHER (The "Wake Up" Fix) ---
+    // --- 5. DATA REFRESHER ---
     async function refreshAllData() {
-        console.log("🔄 Refreshing Data...");
-        
-        // 1. Fetch Profile
+        // Fetch Profile
         const { data: student } = await supa.from('students').select('*').eq('email', currentUser.email).maybeSingle();
         if (student) updateRankUI(student);
 
-        // 2. Fetch Room Settings
+        // Fetch Room Settings
         const { data: room } = await supa.from('room_settings').select('*').eq('id', 1).maybeSingle();
         if (room) { updateRoomUI(room.mode); applySettingsUI(room); }
 
-        // 3. Re-Subscribe to Realtime (Kill old ones first)
+        // Re-Subscribe (Kill old, start new)
         supa.removeAllChannels().then(() => {
             supa.channel('room_updates')
                 .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_settings', filter: 'id=eq.1' }, 
@@ -369,7 +390,26 @@
         });
     }
 
-    // --- 5. SEND MESSAGE (The "Ghost Message" Fix) ---
+    // --- 6. FORM LOGIC ---
+    function showHelpForm(type) {
+        activeHelpType = type;
+        document.getElementById('form-title').innerText = type + " Request";
+        const btn = document.getElementById('submit-help-btn');
+        const txtBox = document.getElementById('detail-text');
+        const detailArea = document.getElementById('detail-area');
+
+        if (btn) { btn.innerText = "SEND REQUEST"; btn.disabled = false; }
+        if (txtBox) txtBox.value = ""; 
+        
+        // Show/Hide text box based on type
+        if (detailArea) {
+            detailArea.style.display = (type === 'Question' || type === 'Hazard') ? 'flex' : 'none';
+        }
+        
+        showSlider('help-form');
+    }
+
+    // --- 7. SEND MESSAGE (WITH TIMEOUT) ---
     async function submitHelp() {
         const btn = document.getElementById('submit-help-btn');
         const detailsInput = document.getElementById('detail-text');
@@ -378,13 +418,11 @@
         btn.disabled = true;
         btn.innerText = "SENDING...";
 
-        // TIMEOUT WRAPPER: If Supabase takes > 4 seconds, we assume failure.
-        const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error("Network Timeout")), 4000)
-        );
+        // 4 Second Timeout Protection
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Network Timeout")), 4000));
 
         try {
-            // 1. Check Duplicates
+            // Check Duplicates
             if (['Test', 'Restroom'].includes(activeHelpType)) {
                 const { data } = await Promise.race([
                     supa.from('help_requests').select('id').eq('student_id', currentUser.id).eq('type', activeHelpType).eq('status', 'pending'),
@@ -393,38 +431,31 @@
                 if (data && data.length > 0) throw new Error("Request already pending.");
             }
 
-            // 2. Prepare Data
             let finalDetails = rawText || "Standard Request";
             
-            // 3. Send with Timeout Protection
-            const insertOperation = supa.from('help_requests').insert([{ 
-                student_id: currentUser.id, 
-                student_name: currentUser.name, 
-                type: activeHelpType, 
-                details: finalDetails, 
-                status: 'pending' 
-            }]);
-
-            const { error } = await Promise.race([insertOperation, timeoutPromise]);
+            // Send
+            const { error } = await Promise.race([
+                supa.from('help_requests').insert([{ 
+                    student_id: currentUser.id, student_name: currentUser.name, type: activeHelpType, details: finalDetails, status: 'pending' 
+                }]),
+                timeoutPromise
+            ]);
 
             if (error) throw error;
 
-            // 4. Success
             btn.innerText = "SENT!";
             setTimeout(() => { 
-                btn.disabled = false; 
-                btn.innerText = "SEND REQUEST"; 
+                btn.disabled = false; btn.innerText = "SEND REQUEST"; 
                 if (detailsInput) detailsInput.value = ""; 
                 hideAllSliders(); 
             }, 1000);
 
         } catch (err) {
-            console.error("Submission Error:", err);
+            console.error(err);
             btn.disabled = false;
-
             if (err.message === "Network Timeout" || err.message.includes("fetch")) {
-                alert("⚠️ Network stuck. Reloading page to fix connection.");
-                window.location.reload(); // Auto-fix the zombie state
+                alert("⚠️ Network stuck. Reloading page...");
+                window.location.reload(); 
             } else if (err.message.includes("already pending")) {
                 btn.innerText = "WAIT";
                 alert("You already have a request waiting!");
@@ -435,16 +466,7 @@
         }
     }
 
-    // --- 6. TAB WAKE UP DETECTOR ---
-    document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-            console.log("👁️ Tab Woke Up. Verifying connection...");
-            // Force a data refresh when tab comes back
-            setTimeout(refreshAllData, 500);
-        }
-    });
-
-    // --- UI HELPERS ---
+    // --- 8. UI HELPERS ---
     function updateRankUI(data) {
         const fields = [{id:'r-type',k:'typing'}, {id:'r-os',k:'chrome'}, {id:'r-sheet',k:'sheets'}, {id:'r-web',k:'web'}];
         fields.forEach(f => {
@@ -483,22 +505,10 @@
         document.querySelectorAll('.slider:not(#login-overlay)').forEach(s => s.style.display = 'none'); 
     }
     
-    document.getElementById('donow-link-container').onclick = () => {
-        if (cachedDoNowUrl) window.open(cachedDoNowUrl, '_blank');
-        else alert("No link provided for this Do Now.");
-    };
-
-    function showHelpForm(type) {
-        activeHelpType = type;
-        document.getElementById('form-title').innerText = type + " Request";
-        const btn = document.getElementById('submit-help-btn');
-        const txtBox = document.getElementById('detail-text');
-        const detailArea = document.getElementById('detail-area');
-
-        if (btn) { btn.innerText = "SEND REQUEST"; btn.disabled = false; }
-        if (txtBox) txtBox.value = ""; 
-        if (detailArea) detailArea.style.display = (type === 'Question' || type === 'Hazard') ? 'flex' : 'none';
-        showSlider('help-form');
+    async function openRank() {
+        showSlider('rank-display');
+        const { data } = await supa.from('students').select('*').eq('email', currentUser.email).maybeSingle();
+        if (data) updateRankUI(data);
     }
 
     async function signInWithGoogle() {
@@ -508,19 +518,19 @@
         });
     }
 
-    async function openRank() {
-        showSlider('rank-display');
-        const { data } = await supa.from('students').select('*').eq('email', currentUser.email).maybeSingle();
-        if (data) updateRankUI(data);
-    }
-
     function googleTranslateElementInit() {
         new google.translate.TranslateElement({pageLanguage: 'en', includedLanguages: 'en,pt,es', layout: google.translate.TranslateElement.InlineLayout.SIMPLE}, 'google_translate_element');
     }
+    
+    // Wake Up Handler
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') setTimeout(refreshAllData, 500);
+    });
 </script>
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
 
