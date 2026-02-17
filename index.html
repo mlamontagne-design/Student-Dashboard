@@ -579,17 +579,23 @@
         new google.translate.TranslateElement({pageLanguage: 'en', includedLanguages: 'en,pt,es', layout: google.translate.TranslateElement.InlineLayout.SIMPLE}, 'google_translate_element');
     }
 
-    // --- LOGOUT ---
-async function handleSignOut() {
-    console.log("🛑 Signing out...");
-    const { error } = await supa.auth.signOut();
+// --- LOGOUT (Global Scope Fix) ---
+window.handleSignOut = async function() {
+    console.log("🛑 Sign out triggered...");
     
-    if (error) {
-        console.error("Error signing out:", error);
+    // 1. Try to sign out of Supabase
+    try {
+        const { error } = await supa.auth.signOut();
+        if (error) console.error("Supabase logout warning:", error);
+    } catch (err) {
+        console.error("Logout network error:", err);
     }
-    
-    // Clear local data and force reload to login screen
+
+    // 2. Nuclear Option: Clear everything and force reload
     localStorage.clear();
+    sessionStorage.clear();
+    
+    // 3. Force a hard reload to the login page
     window.location.href = window.location.pathname;
 }
 </script>
