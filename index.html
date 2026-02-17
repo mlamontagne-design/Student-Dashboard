@@ -508,7 +508,7 @@ async function submitHelp() {
     btn.disabled = true;
     btn.innerText = "TRANSMITTING...";
 
-    // 1. TIMEOUT PROTECTION
+    // 1. TIMEOUT PROTECTION (In case network hangs)
     const timeout = setTimeout(() => {
         if (btn.disabled) {
             btn.disabled = false;
@@ -540,7 +540,7 @@ async function submitHelp() {
         setTimeout(() => { 
             btn.disabled = false; 
             btn.innerText = "SEND REQUEST"; 
-            // Clear the text box only if it exists
+            // Clear the text box only if it actually exists
             if (detailsInput) detailsInput.value = "";
         }, 2000);
 
@@ -568,6 +568,7 @@ document.getElementById('logout-btn').addEventListener('click', async (e) => {
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
 
