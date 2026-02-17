@@ -164,19 +164,18 @@
 </head>
 <body>
 
-    
     <div id="status-bar" style="position: relative;">
-    <div id="translate-wrapper">
-        <div id="google_translate_element"></div>
-    </div>
+        <div id="translate-wrapper">
+            <div id="google_translate_element"></div>
+        </div>
 
-    <span id="status-text">📡 CONNECTING...</span>
-    
-    <div class="user-control-group">
-        <div id="user-id-display">NOT IDENTIFIED</div>
-        <button class="logout-btn" id="logout-btn" onclick="handleSignOut()">SIGN OUT</button>
+        <span id="status-text">📡 CONNECTING...</span>
+        
+        <div class="user-control-group">
+            <div id="user-id-display">NOT IDENTIFIED</div>
+            <button class="logout-btn" id="logout-btn" onclick="handleSignOut()">SIGN OUT</button>
+        </div>
     </div>
-</div>
 
     <div id="login-overlay" class="slider">
         <div class="slider-header">SYSTEM ACCESS</div>
@@ -294,20 +293,16 @@
 
     // --- MAIN EVENT LISTENER ---
     supa.auth.onAuthStateChange(async (event, session) => {
-        console.log(`📣 Auth Event: ${event}`);
+        // --- HASH GUARD ---
+        if (event === 'SIGNED_OUT' && window.location.hash.includes('access_token')) {
+            return; 
+        }
 
         const logoutBtn = document.getElementById('logout-btn');
         const userDisplay = document.getElementById('user-id-display');
 
-        // --- HASH GUARD ---
-        if (event === 'SIGNED_OUT' && window.location.hash.includes('access_token')) {
-            console.log("⏳ Ignoring SIGNED_OUT (Processing OAuth Token...)");
-            return; 
-        }
-
         // 1. Handle Sign Out
         if (event === 'SIGNED_OUT' || !session) {
-            console.log("🔒 User is signed out. Showing login.");
             isInitialized = false; 
             currentUser = { id: "", name: "", email: "", verified: false };
             if (userDisplay) userDisplay.style.display = 'none';
@@ -336,7 +331,6 @@
                     .maybeSingle();
 
                 if (studentRecord && !studentRecord.email) {
-                    console.log("🔗 Linking email to student record...");
                     await supa.from('students')
                         .update({ email: currentUser.email })
                         .ilike('name', cleanName);
@@ -376,8 +370,8 @@
             .subscribe();
     }
 
-    // --- ROBUST DATA FETCHING (NEW) ---
-    async function fetchStudentProfile(email) {
+    // --- ROBUST DATA FETCHING (UPDATED WITH ABORT HANDLING) ---
+    async function fetchStudentProfile(email, retryCount = 0) {
         if (!email) return;
         
         console.log("🔄 Fetching student profile...");
@@ -388,13 +382,23 @@
             .maybeSingle();
 
         if (error) {
-            console.error("Fetch Error:", error);
-            // If auth error, try to heal
+            console.error("Fetch Error:", error.message);
+            
+            // 1. Handle ABORT (Browser waking up)
+            if (error.message.includes('AbortError') || error.message.includes('aborted')) {
+                if (retryCount < 2) { // Try twice max
+                    console.log(`⚠️ Network aborted. Retrying in 1s (Attempt ${retryCount + 1})...`);
+                    setTimeout(() => fetchStudentProfile(email, retryCount + 1), 1000);
+                }
+                return;
+            }
+
+            // 2. Handle JWT Auth Error
             if (error.code === 'PGRST301' || error.message.includes("JWT")) {
                  console.log("♻️ Token expired. Refreshing session...");
                  const { data: refreshData } = await supa.auth.refreshSession();
                  if (refreshData.session) {
-                     fetchStudentProfile(email); // Retry
+                     setTimeout(() => fetchStudentProfile(email, 0), 500); 
                  }
             }
             return;
@@ -402,8 +406,6 @@
 
         if (data) {
             updateRankUI(data);
-        } else {
-            console.log("Student record not found for this email.");
         }
     }
 
@@ -469,7 +471,6 @@
 
     async function openRank() {
         showSlider('rank-display');
-        // Use the robust fetcher instead of a direct call
         await fetchStudentProfile(currentUser.email);
     }
 
@@ -527,10 +528,7 @@
         btn.innerText = "CHECKING...";
 
         try {
-            // Check auth first
-            if (!currentUser.id) {
-                throw new Error("Connection lost. Please wait...");
-            }
+            if (!currentUser.id) throw new Error("Connection lost. Please wait...");
 
             // 1. SELECTIVE LIMIT CHECK
             if (['Test', 'Restroom'].includes(activeHelpType)) {
@@ -581,7 +579,13 @@
         } catch (err) {
             console.error("Request Failed:", err.message);
             
-            // --- NEW AUTH ERROR HANDLING ---
+            // --- NEW ABORT / AUTH HANDLING ---
+            if (err.message.includes("AbortError") || err.message.includes("aborted")) {
+                 btn.innerText = "WAKING UP...";
+                 setTimeout(submitHelp, 1000); // Retry once automatically
+                 return;
+            }
+
             if (err.message.includes("JWT") || err.code === "PGRST301" || err.message.includes("Connection lost")) {
                  btn.innerText = "RECONNECTING...";
                  const { data: refresh } = await supa.auth.refreshSession();
@@ -615,33 +619,30 @@
         new google.translate.TranslateElement({pageLanguage: 'en', includedLanguages: 'en,pt,es', layout: google.translate.TranslateElement.InlineLayout.SIMPLE}, 'google_translate_element');
     }
 
-    // --- WAKE UP HANDLER (FIXED) ---
+    // --- WAKE UP HANDLER (FIXED WITH DELAY) ---
     document.addEventListener('visibilitychange', async () => {
         if (document.visibilityState === 'visible') {
-            console.log("👀 Tab is active again. Checking vital signs...");
+            console.log("👀 Tab is active again. Waiting for network...");
             
-            // 1. Check if our session is still valid
-            const { data: { session }, error } = await supa.auth.getSession();
-            
-            if (error || !session) {
-                console.warn("⚠️ Session expired while in background. Attempting restore...");
-                const { data: refresh, error: refreshErr } = await supa.auth.refreshSession();
+            // Give Chrome 500ms to wake up the network stack before we ask for data
+            setTimeout(async () => {
+                // 1. Check if our session is still valid
+                const { data: { session }, error } = await supa.auth.getSession();
                 
-                if (refreshErr || !refresh.session) {
-                    console.error("Session dead. User must re-login.");
-                    // Optional: handleSignOut(); // Strict force logout
-                    // For now, let's just not fetch data so it doesn't error out
-                    return;
-                } else {
-                    console.log("✅ Session restored.");
+                if (error || !session) {
+                    console.warn("⚠️ Session expired while in background. Attempting restore...");
+                    const { data: refresh, error: refreshErr } = await supa.auth.refreshSession();
+                    if (refreshErr || !refresh.session) {
+                        return; // Dead session
+                    }
                 }
-            }
 
-            // 2. Refresh the data if we have a user
-            if (currentUser.email) {
-                console.log("Refreshing data...");
-                fetchStudentProfile(currentUser.email);
-            }
+                // 2. Refresh the data if we have a user
+                if (currentUser.email) {
+                    console.log("Refreshing data...");
+                    fetchStudentProfile(currentUser.email);
+                }
+            }, 500); // The 500ms "Yawn and Stretch" delay
         }
     });
 
