@@ -280,11 +280,11 @@
 
     // --- AUTH LOGIC ---
     async function signInWithGoogle() {
-        const targetUrl = window.location.href.split('#')[0].split('?')[0];
+        // Simple redirect to current origin
         const { error } = await supa.auth.signInWithOAuth({
             provider: 'google',
             options: { 
-                redirectTo: targetUrl,
+                redirectTo: window.location.origin + window.location.pathname,
                 queryParams: { prompt: 'select_account' }
             }
         });
@@ -293,15 +293,28 @@
 
     // --- MAIN EVENT LISTENER ---
     supa.auth.onAuthStateChange(async (event, session) => {
+        console.log(`📣 Auth Event: ${event}`); // Debugging Log
+
         const logoutBtn = document.getElementById('logout-btn');
         const userDisplay = document.getElementById('user-id-display');
 
+        // --- 🛑 THE FIX: HASH GUARD 🛑 ---
+        // If we just came back from Google, the URL has an '#access_token'.
+        // Supabase fires 'SIGNED_OUT' briefly before processing it.
+        // We MUST ignore 'SIGNED_OUT' if that token is present.
+        if (event === 'SIGNED_OUT' && window.location.hash.includes('access_token')) {
+            console.log("⏳ Ignoring SIGNED_OUT (Processing OAuth Token...)");
+            return; 
+        }
+
         // 1. Handle Sign Out
         if (event === 'SIGNED_OUT' || !session) {
+            console.log("🔒 User is signed out. Showing login.");
             isInitialized = false; 
             currentUser = { id: "", name: "", email: "", verified: false };
             if (userDisplay) userDisplay.style.display = 'none';
             if (logoutBtn) logoutBtn.style.display = 'none';
+            
             document.getElementById('login-overlay').style.display = 'flex';
             document.getElementById('main-dashboard').classList.remove('active');
             hideAllSliders();
@@ -325,6 +338,7 @@
                     .maybeSingle();
 
                 if (studentRecord && !studentRecord.email) {
+                    console.log("🔗 Linking email to student record...");
                     await supa.from('students')
                         .update({ email: currentUser.email })
                         .ilike('name', cleanName);
@@ -332,8 +346,10 @@
             } catch (err) { console.error("Auto-linker error:", err); }
         }
 
-        // 4. UI & LISTENERS
+        // 4. UI & LISTENERS (Run Once)
         if (!isInitialized) {
+            console.log("✅ Initializing Dashboard for:", currentUser.name);
+            
             if (userDisplay) {
                 userDisplay.innerText = `OPERATOR: ${currentUser.name}`;
                 userDisplay.style.display = 'block';
@@ -343,6 +359,11 @@
             document.getElementById('help-user-display').innerText = `Logged in as: ${currentUser.name}`;
             document.getElementById('login-overlay').style.display = 'none';
             document.getElementById('main-dashboard').classList.add('active');
+
+            // Clear the hash from URL to look clean (optional)
+            if (window.location.hash) {
+                window.history.replaceState(null, null, window.location.pathname);
+            }
 
             subscribeToRoomChanges(); 
             initStudentRealtime(currentUser.email);
@@ -458,7 +479,7 @@
     async function translateStrict(text) {
         if (!text || text === "Standard Request") return text;
 
-        // 4 Second Timeout - Give it a fair chance
+        // 4 Second Timeout
         const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Translation Timeout")), 4000));
 
         // The translation fetch
@@ -473,7 +494,6 @@
                 return (lang !== 'en' && lang !== 'en-US') ? `TR: ${translated} (Orig: ${text})` : text;
             });
 
-        // Race: If timeout wins, we THROW error (stopping submission)
         return await Promise.race([translation, timeout]);
     }
 
@@ -489,7 +509,6 @@
 
         try {
             // 1. SELECTIVE LIMIT CHECK
-            // Only stop duplicates for Test or Restroom. 
             if (['Test', 'Restroom'].includes(activeHelpType)) {
                 const { data: existingRequests, error: checkError } = await supa
                     .from('help_requests')
@@ -509,7 +528,6 @@
             btn.innerText = "TRANSLATING...";
             let finalDetails = "Standard Request"; 
 
-            // If this fails, it jumps to CATCH and does NOT submit
             if (rawText) {
                 finalDetails = await translateStrict(rawText);
             }
@@ -539,7 +557,6 @@
         } catch (err) {
             console.error("Request Failed:", err.message);
             
-            // Handle Specific Errors
             if (err.message.includes("already have a pending")) {
                 btn.innerText = "WAIT"; 
                 alert("🛑 Hold on! " + err.message);
@@ -553,7 +570,6 @@
                 alert("Error: " + err.message);
             }
 
-            // Reset button
             btn.disabled = false;
             buttonResetTimer = setTimeout(() => { btn.innerText = "SEND REQUEST"; }, 3000);
         }
@@ -570,11 +586,11 @@
         localStorage.clear();
         window.location.href = window.location.pathname; 
     });
-
-    </script>
+</script>
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
 
