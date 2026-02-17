@@ -15,31 +15,31 @@
         }
 
         /* --- GOOGLE TRANSLATE OVERRIDES --- */
-        #translate-wrapper { 
-            position: absolute; 
-            top: 50%;
-            left: 20px; 
-            transform: translateY(-50%); 
-            z-index: 1000; 
-            background: transparent;
-            padding: 2px 8px; 
-            border: none;
-            height: 32px; 
-            display: flex;
-            align-items: center;
-        }
+       #translate-wrapper { 
+    position: absolute; 
+    top: 50%;
+    left: 20px; 
+    transform: translateY(-50%); 
+    z-index: 1000; 
+    background: transparent; /* Removed the grey box */
+    padding: 2px 8px; 
+    border: none; /* Removed the dark outline */
+    height: 32px; 
+    display: flex;
+    align-items: center;
+}
 
-        #translate-wrapper:hover {
-            border-color: var(--accent-blue);
-        }
+#translate-wrapper:hover {
+    border-color: var(--accent-blue);
+}
         .goog-te-gadget { font-size: 0 !important; color: transparent !important; }
         .goog-te-gadget .goog-te-combo { 
-            background: rgba(0, 0, 0, 0.2) !important;
-            color: #fff !important; 
-            border: 1px solid rgba(255, 255, 255, 0.3) !important;
-            border-radius: 4px;
-            padding: 2px;
-        }
+    background: rgba(0, 0, 0, 0.2) !important; /* Slight dark tint for readability */
+    color: #fff !important; 
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    border-radius: 4px;
+    padding: 2px;
+}
         .goog-logo-link, .goog-te-gadget span, .goog-te-banner-frame { display: none !important; }
 
         * { box-sizing: border-box; }
@@ -77,12 +77,14 @@
         
         .form-content { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
         
+        /* This makes the wrapper fill the slider */
+        /* This container will now expand to fill the gap */
         #detail-area {
             width: 100%;
-            display: none;
+            display: none; /* Controlled by JS */
             flex-direction: column;
-            flex: 1;
-            min-height: 0;
+            flex: 1; /* Key: Take up all remaining vertical space */
+            min-height: 0; /* Prevents flex items from bulging past parent */
             margin: 10px 0;
         }
 
@@ -93,7 +95,7 @@
             padding: 15px; 
             border-radius: 12px; 
             width: 100%; 
-            height: 100%;
+            height: 100%; /* Fill the flex container */
             font-size: 1.1rem; 
             outline: none; 
             resize: none;
@@ -124,66 +126,73 @@
         .logged-in-as { font-size: 0.8rem; color: var(--accent-green); font-weight: bold; margin-bottom: 5px;}
         .back { color: #666; cursor: pointer; font-size: 0.85rem; text-decoration: underline; padding: 5px; }
         .user-control-group {
-            position: absolute;
-            right: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            gap: 4px;
-        }
+    position: absolute;
+    right: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
 
-        #user-id-display {
-            font-size: 0.7rem;
-            font-weight: 700;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            opacity: 0.8;
-            color: inherit;
-        }
+#user-id-display {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    opacity: 0.8;
+    color: inherit; /* Inherits black or white from the status bar logic */
+}
 
-        .logout-btn {
-            position: static; 
-            background: #1a1a1a;
-            color: #ff5252;
-            border: 2px solid #ff5252;
-            padding: 4px 12px;
-            border-radius: 6px;
-            font-size: 0.75rem;
-            font-weight: 800;
-            cursor: pointer;
-            display: none;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-        }
+/* Ensure the logout button doesn't have absolute positioning anymore 
+   so it sits nicely below the name */
+.logout-btn {
+    position: static; 
+    background: #1a1a1a;
+    color: #ff5252;
+    border: 2px solid #ff5252;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 800;
+    cursor: pointer;
+    display: none;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+}
 
-        .logout-btn:hover {
-            background: #ff5252;
-            color: white;
-            transform: scale(1.05);
-        }
+.logout-btn:hover {
+    background: #ff5252;
+    color: white;
+    transform: scale(1.05);
+}
     </style>
 </head>
 <body>
 
+    
     <div id="status-bar" style="position: relative;">
-        <div id="translate-wrapper">
-            <div id="google_translate_element"></div>
-        </div>
-        <span id="status-text">📡 CONNECTING...</span>
-        <div class="user-control-group">
-            <div id="user-id-display">NOT IDENTIFIED</div>
-            <button class="logout-btn" id="logout-btn">SIGN OUT</button>
-        </div>
+    <div id="translate-wrapper">
+        <div id="google_translate_element"></div>
     </div>
+
+    <span id="status-text">📡 CONNECTING...</span>
+    
+    <div class="user-control-group">
+        <div id="user-id-display">NOT IDENTIFIED</div>
+        <button class="logout-btn" id="logout-btn" onclick="handleSignOut()">SIGN OUT</button>
+    </div>
+</div>
 
     <div id="login-overlay" class="slider">
         <div class="slider-header">SYSTEM ACCESS</div>
         <div class="form-content">
             <div class="pin-hint">Please sign in with your student account to access Mission Control.</div>
+            
             <button class="btn" id="login-btn" onclick="signInWithGoogle()">
                 <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
                 INITIALIZE SESSION
             </button>
         </div>
+        <div style="height: 20px;"></div>
     </div>
 
     <div class="dashboard" id="main-dashboard">
@@ -257,7 +266,7 @@
     </div>
 
     <script>
-    // --- 1. GLOBAL STATE (Moved to top to prevent ReferenceErrors) ---
+    // --- CONFIGURATION ---
     const SUPABASE_URL = "https://irthpbbqlhglvpazahft.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlydGhwYmJxbGhnbHZwYXphaGZ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzExMTkzODIsImV4cCI6MjA4NjY5NTM4Mn0.4Pp-NxsgSJO0RiNY5aM8rZ54NhUQkpYlOUib-WHgAks";
     const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -269,8 +278,9 @@
     let isInitialized = false; 
     let buttonResetTimer = null; 
 
-    // --- 2. AUTH LOGIC ---
+    // --- AUTH LOGIC ---
     async function signInWithGoogle() {
+        // Simple redirect to current origin
         const { error } = await supa.auth.signInWithOAuth({
             provider: 'google',
             options: { 
@@ -281,53 +291,87 @@
         if (error) alert("Login failed: " + error.message);
     }
 
+    // --- MAIN EVENT LISTENER ---
     supa.auth.onAuthStateChange(async (event, session) => {
+        console.log(`📣 Auth Event: ${event}`); // Debugging Log
+
         const logoutBtn = document.getElementById('logout-btn');
         const userDisplay = document.getElementById('user-id-display');
 
-        // HASH GUARD: Prevent session flicker during redirect
-        if (event === 'SIGNED_OUT' && window.location.hash.includes('access_token')) return;
+        // --- 🛑 THE FIX: HASH GUARD 🛑 ---
+        // If we just came back from Google, the URL has an '#access_token'.
+        // Supabase fires 'SIGNED_OUT' briefly before processing it.
+        // We MUST ignore 'SIGNED_OUT' if that token is present.
+        if (event === 'SIGNED_OUT' && window.location.hash.includes('access_token')) {
+            console.log("⏳ Ignoring SIGNED_OUT (Processing OAuth Token...)");
+            return; 
+        }
 
+        // 1. Handle Sign Out
         if (event === 'SIGNED_OUT' || !session) {
+            console.log("🔒 User is signed out. Showing login.");
             isInitialized = false; 
             currentUser = { id: "", name: "", email: "", verified: false };
             if (userDisplay) userDisplay.style.display = 'none';
             if (logoutBtn) logoutBtn.style.display = 'none';
+            
             document.getElementById('login-overlay').style.display = 'flex';
             document.getElementById('main-dashboard').classList.remove('active');
             hideAllSliders();
             return; 
         }
 
+        // 2. Capture User Data
         currentUser.id = session.user.id;
         currentUser.email = session.user.email;
         currentUser.name = session.user.user_metadata.full_name || session.user.email;
         currentUser.verified = true;
 
+        // 3. AUTO-LINKER
+        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+            try {
+                const cleanName = currentUser.name.trim(); 
+                const { data: studentRecord } = await supa
+                    .from('students')
+                    .select('name, email')
+                    .ilike('name', cleanName)
+                    .maybeSingle();
+
+                if (studentRecord && !studentRecord.email) {
+                    console.log("🔗 Linking email to student record...");
+                    await supa.from('students')
+                        .update({ email: currentUser.email })
+                        .ilike('name', cleanName);
+                }
+            } catch (err) { console.error("Auto-linker error:", err); }
+        }
+
+        // 4. UI & LISTENERS (Run Once)
         if (!isInitialized) {
+            console.log("✅ Initializing Dashboard for:", currentUser.name);
+            
             if (userDisplay) {
                 userDisplay.innerText = `OPERATOR: ${currentUser.name}`;
                 userDisplay.style.display = 'block';
             }
             if (logoutBtn) logoutBtn.style.display = 'block';
+
             document.getElementById('help-user-display').innerText = `Logged in as: ${currentUser.name}`;
             document.getElementById('login-overlay').style.display = 'none';
             document.getElementById('main-dashboard').classList.add('active');
-            
+
+            // Clear the hash from URL to look clean (optional)
+            if (window.location.hash) {
+                window.history.replaceState(null, null, window.location.pathname);
+            }
+
             subscribeToRoomChanges(); 
             initStudentRealtime(currentUser.email);
-            fetchStudentProfile(); // Fetch once on load
             isInitialized = true; 
         }
     });
 
-    // --- 3. DATA FETCHING ---
-    async function fetchStudentProfile() {
-        if (!currentUser.email) return;
-        const { data } = await supa.from('students').select('*').eq('email', currentUser.email).maybeSingle(); 
-        if (data) updateRankUI(data);
-    }
-
+    // --- REAL-TIME UPDATES ---
     function initStudentRealtime(userEmail) {
         supa.channel('student-rank-sync')
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'students', filter: `email=eq.${userEmail}` }, 
@@ -336,13 +380,18 @@
     }
 
     function updateRankUI(data) {
-        const fields = [{ id: 'r-type', key: 'typing' }, { id: 'r-os', key: 'chrome' }, { id: 'r-sheet', key: 'sheets' }, { id: 'r-web', key: 'web' }];
+        const fields = [
+            { id: 'r-type', key: 'typing' },
+            { id: 'r-os', key: 'chrome' },
+            { id: 'r-sheet', key: 'sheets' },
+            { id: 'r-web', key: 'web' }
+        ];
         fields.forEach(field => {
             const el = document.getElementById(field.id);
             if (el) {
-                let val = data[field.key] || "-";
-                if (val === "Master 3") val += " 🏆";
-                el.innerText = val;
+                let rankValue = data[field.key] || "-";
+                if (rankValue === "Master 3") rankValue += " 🏆";
+                el.innerText = rankValue;
             }
         });
         if (document.getElementById('std-name')) document.getElementById('std-name').innerText = data.name;
@@ -351,18 +400,11 @@
     async function subscribeToRoomChanges() {
         const { data } = await supa.from('room_settings').select('*').eq('id', 1).single();
         if (data) { updateRoomUI(data.mode); applySettingsUI(data); }
-        supa.channel('room_updates').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_settings', filter: 'id=eq.1' }, 
-            (payload) => { updateRoomUI(payload.new.mode); applySettingsUI(payload.new); }).subscribe();
-    }
 
-    function updateRoomUI(mode) {
-        const bar = document.getElementById('status-bar');
-        const statusText = document.getElementById('status-text');
-        const m = mode.toLowerCase();
-        const icons = { silent: '🤫 SILENT', whisper: '🔉 WHISPER', collaborate: '🗣️ COLLABORATE' };
-        bar.style.background = m === 'silent' ? '#d32f2f' : (m === 'whisper' ? '#fbc02d' : '#388e3c');
-        bar.style.color = m === 'whisper' ? '#1a1a1a' : '#ffffff';
-        statusText.innerText = icons[m] || icons['collaborate'];
+        supa.channel('room_updates')
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_settings', filter: 'id=eq.1' }, 
+            (payload) => { updateRoomUI(payload.new.mode); applySettingsUI(payload.new); })
+            .subscribe();
     }
 
     function applySettingsUI(data) {
@@ -374,10 +416,20 @@
 
     document.getElementById('donow-link-container').onclick = () => {
         if (cachedDoNowUrl) window.open(cachedDoNowUrl, '_blank');
-        else alert("No link provided.");
+        else alert("No link provided for this Do Now.");
     };
 
-    // --- 4. SLIDER & NAVIGATION ---
+    function updateRoomUI(mode) {
+        const bar = document.getElementById('status-bar');
+        const statusText = document.getElementById('status-text');
+        const m = mode.toLowerCase();
+        const icons = { silent: '🤫 SILENT', whisper: '🔉 WHISPER', collaborate: '🗣️ COLLABORATE' };
+        bar.style.background = m === 'silent' ? '#d32f2f' : (m === 'whisper' ? '#fbc02d' : '#388e3c');
+        bar.style.color = m === 'whisper' ? '#1a1a1a' : '#ffffff';
+        statusText.innerText = icons[m] || icons['collaborate'];
+    }
+
+    // --- SLIDER LOGIC ---
     function showSlider(id) { 
         hideAllSliders(); 
         document.getElementById(id).style.display = 'flex'; 
@@ -389,87 +441,152 @@
 
     async function openRank() {
         showSlider('rank-display');
-        fetchStudentProfile();
+        const { data } = await supa.from('students').select('*').eq('email', currentUser.email).maybeSingle(); 
+        if (data) updateRankUI(data);
     }
+
+    // --- HELP REQUEST SYSTEM (STRICT MODE) ---
 
     function showHelpForm(type) {
         activeHelpType = type;
         document.getElementById('form-title').innerText = type + " Request";
+        
         const btn = document.getElementById('submit-help-btn');
         const txtBox = document.getElementById('detail-text');
         const detailArea = document.getElementById('detail-area');
 
+        // KILL old timers to prevent "WAIT" from reappearing
         if (buttonResetTimer) clearTimeout(buttonResetTimer);
-        if (btn) { btn.innerText = "SEND REQUEST"; btn.disabled = false; }
+
+        // HARD RESET Button State
+        if (btn) {
+            btn.innerText = "SEND REQUEST";
+            btn.disabled = false;
+        }
+
+        // RESET Text Box
         if (txtBox) txtBox.value = ""; 
+
+        // Show text box ONLY for Question or Hazard
         if (detailArea) {
             detailArea.style.display = (type === 'Question' || type === 'Hazard') ? 'flex' : 'none';
         }
+        
         showSlider('help-form');
     }
 
-    // --- 5. HELP SUBMISSION & TRANSLATION ---
+    // STRICT TRANSLATION: Throws error on timeout or failure
     async function translateStrict(text) {
         if (!text || text === "Standard Request") return text;
-        try {
-            const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURI(text)}`);
-            const data = await res.json();
-            const translated = data[0][0][0];
-            return (data[2] !== 'en' && data[2] !== 'en-US') ? `TR: ${translated} (Orig: ${text})` : text;
-        } catch (err) { return text; }
+
+        // 4 Second Timeout
+        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Translation Timeout")), 4000));
+
+        // The translation fetch
+        const translation = fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURI(text)}`)
+            .then(res => {
+                if (!res.ok) throw new Error("Translation Service Error");
+                return res.json();
+            })
+            .then(data => {
+                const translated = data[0][0][0];
+                const lang = data[2]; 
+                return (lang !== 'en' && lang !== 'en-US') ? `TR: ${translated} (Orig: ${text})` : text;
+            });
+
+        return await Promise.race([translation, timeout]);
     }
 
     async function submitHelp() {
         const btn = document.getElementById('submit-help-btn');
         const detailsInput = document.getElementById('detail-text');
-        const rawText = (detailsInput && detailsInput.offsetParent) ? detailsInput.value.trim() : ""; 
+        
+        const isVisible = detailsInput && detailsInput.offsetParent !== null;
+        const rawText = isVisible ? detailsInput.value.trim() : ""; 
 
         btn.disabled = true;
-        btn.innerText = "SENDING...";
+        btn.innerText = "CHECKING...";
 
         try {
+            // 1. SELECTIVE LIMIT CHECK
             if (['Test', 'Restroom'].includes(activeHelpType)) {
-                const { data } = await supa.from('help_requests').select('id').eq('student_id', currentUser.id).eq('type', activeHelpType).eq('status', 'pending');
-                if (data && data.length > 0) throw new Error(`Already a pending ${activeHelpType} request.`);
+                const { data: existingRequests, error: checkError } = await supa
+                    .from('help_requests')
+                    .select('id')
+                    .eq('student_id', currentUser.id)
+                    .eq('type', activeHelpType)
+                    .eq('status', 'pending'); 
+
+                if (checkError) throw checkError;
+
+                if (existingRequests && existingRequests.length > 0) {
+                    throw new Error(`You already have a pending ${activeHelpType} request.`);
+                }
             }
 
-            const finalDetails = rawText ? await translateStrict(rawText) : "Standard Request";
-            const { error } = await supa.from('help_requests').insert([{ 
-                student_id: currentUser.id, student_name: currentUser.name, 
-                type: activeHelpType, details: finalDetails, status: 'pending' 
+            // 2. PREPARE MESSAGE & STRICT TRANSLATE
+            btn.innerText = "TRANSLATING...";
+            let finalDetails = "Standard Request"; 
+
+            if (rawText) {
+                finalDetails = await translateStrict(rawText);
+            }
+
+            // 3. SEND TO DB
+            btn.innerText = "SENDING...";
+            const { error: insertError } = await supa.from('help_requests').insert([{ 
+                student_id: currentUser.id, 
+                student_name: currentUser.name, 
+                type: activeHelpType, 
+                details: finalDetails, 
+                status: 'pending' 
             }]);
 
-            if (error) throw error;
+            if (insertError) throw insertError;
+
+            // 4. SUCCESS
             btn.innerText = "SENT!";
+            
             buttonResetTimer = setTimeout(() => { 
-                btn.disabled = false; btn.innerText = "SEND REQUEST"; 
-                if (detailsInput) detailsInput.value = ""; hideAllSliders(); 
+                btn.disabled = false; 
+                btn.innerText = "SEND REQUEST"; 
+                if (detailsInput) detailsInput.value = ""; 
+                hideAllSliders(); 
             }, 1000);
+
         } catch (err) {
-            alert(err.message);
+            console.error("Request Failed:", err.message);
+            
+            if (err.message.includes("already have a pending")) {
+                btn.innerText = "WAIT"; 
+                alert("🛑 Hold on! " + err.message);
+            } 
+            else if (err.message.includes("Translation") || err.message.includes("Timeout")) {
+                btn.innerText = "TRANSLATION FAILED";
+                alert("⚠️ Network Error: We could not translate your text. Please try again or type in English.");
+            }
+            else {
+                btn.innerText = "ERROR";
+                alert("Error: " + err.message);
+            }
+
             btn.disabled = false;
-            btn.innerText = "SEND REQUEST";
+            buttonResetTimer = setTimeout(() => { btn.innerText = "SEND REQUEST"; }, 3000);
         }
     }
 
-    // --- 6. LIFECYCLE & TRANSLATE ---
+    function googleTranslateElementInit() {
+        new google.translate.TranslateElement({pageLanguage: 'en', includedLanguages: 'en,pt,es', layout: google.translate.TranslateElement.InlineLayout.SIMPLE}, 'google_translate_element');
+    }
+
+    // --- LOGOUT ---
     document.getElementById('logout-btn').addEventListener('click', async (e) => {
         e.preventDefault();
         await supa.auth.signOut();
         localStorage.clear();
         window.location.href = window.location.pathname; 
     });
-
-    document.addEventListener('visibilitychange', async () => {
-        if (document.visibilityState === 'visible' && isInitialized) {
-            fetchStudentProfile();
-        }
-    });
-
-    function googleTranslateElementInit() {
-        new google.translate.TranslateElement({pageLanguage: 'en', includedLanguages: 'en,pt,es', layout: google.translate.TranslateElement.InlineLayout.SIMPLE}, 'google_translate_element');
-    }
-    </script>
+</script>
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
