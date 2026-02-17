@@ -475,7 +475,14 @@ function showHelpForm(type) {
     activeHelpType = type;
     document.getElementById('form-title').innerText = type + " Request";
     
-    // Clear the text box so old messages don't linger
+    // FORCE RESET THE BUTTON
+    const btn = document.getElementById('submit-help-btn');
+    if(btn) {
+        btn.innerText = "SEND REQUEST";
+        btn.disabled = false;
+    }
+
+    // Clear the text box
     const txtBox = document.getElementById('detail-text');
     if(txtBox) txtBox.value = ""; 
 
@@ -486,7 +493,6 @@ function showHelpForm(type) {
     }
     showSlider('help-form');
 }
-
 async function translateIfNecessary(text) {
     if (!text || text === "Standard Request") return text;
     try {
@@ -505,12 +511,10 @@ async function translateIfNecessary(text) {
 
 async function submitHelp() {
     const btn = document.getElementById('submit-help-btn');
+    const detailsInput = document.getElementById('detail-text'); // Correct ID
     
-    // FIX 1: Use the CORRECT ID from your HTML
-    const detailsInput = document.getElementById('detail-text'); 
-    
-    // FIX 2: Only grab text if the box is actually visible to the user
-    // (Prevents hidden text from being sent with a Bathroom request)
+    // 1. GRAB INPUT (Safely)
+    // Only grab text if the box is actually visible (Questions/Hazards)
     const isVisible = detailsInput && detailsInput.offsetParent !== null;
     const rawText = isVisible ? detailsInput.value.trim() : ""; 
 
@@ -518,19 +522,23 @@ async function submitHelp() {
     btn.innerText = "CHECKING...";
 
     try {
-        // --- LOGIC GATE: ANTI-SPAM ---
-        // This requires the SQL Policy added in Step 1 to work!
-        const { data: existingRequests, error: checkError } = await supa
-            .from('help_requests')
-            .select('id')
-            .eq('student_id', currentUser.id)
-            .eq('type', activeHelpType)
-            .eq('status', 'pending'); 
+        // --- LOGIC CHANGE: SELECTIVE LIMITS ---
+        // Only run the "Pending Check" if it is a TEST or RESTROOM request.
+        // Questions and Hazards are allowed to stack.
+        if (['Test', 'Restroom'].includes(activeHelpType)) {
+            
+            const { data: existingRequests, error: checkError } = await supa
+                .from('help_requests')
+                .select('id')
+                .eq('student_id', currentUser.id)
+                .eq('type', activeHelpType)
+                .eq('status', 'pending'); 
 
-        if (checkError) throw checkError;
+            if (checkError) throw checkError;
 
-        if (existingRequests && existingRequests.length > 0) {
-            throw new Error(`You already have a pending ${activeHelpType} request.`);
+            if (existingRequests && existingRequests.length > 0) {
+                throw new Error(`You already have a pending ${activeHelpType} request.`);
+            }
         }
 
         // --- PREPARE MESSAGE ---
@@ -538,10 +546,8 @@ async function submitHelp() {
         
         let finalDetails = "Standard Request"; 
 
-        // If they typed text (and the box was visible), translate it
+        // If they typed text, translate it.
         if (rawText) {
-            console.log("Translating text:", rawText);
-            // Translate function call
             finalDetails = await translateIfNecessary(rawText);
         }
 
@@ -558,6 +564,8 @@ async function submitHelp() {
 
         // --- SUCCESS ---
         btn.innerText = "SENT!";
+        
+        // specific timeout to reset the button
         setTimeout(() => { 
             btn.disabled = false; 
             btn.innerText = "SEND REQUEST"; 
@@ -567,14 +575,19 @@ async function submitHelp() {
 
     } catch (err) {
         console.error("Request Failed:", err.message);
+        
+        // Reset button state immediately so they can try again if it was a real error
         btn.disabled = false;
         
         if (err.message.includes("already have a pending")) {
+            // For the spam blocker, we show "WAIT" briefly, then reset
             btn.innerText = "WAIT";
             alert("🛑 Hold on! " + err.message);
+            setTimeout(() => { btn.innerText = "SEND REQUEST"; }, 2000); 
         } else {
             btn.innerText = "SEND FAILED";
             alert("Error: " + err.message);
+            setTimeout(() => { btn.innerText = "SEND REQUEST"; }, 2000);
         }
     }
 }
@@ -594,6 +607,7 @@ document.getElementById('logout-btn').addEventListener('click', async (e) => {
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
 
