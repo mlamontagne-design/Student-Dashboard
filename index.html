@@ -261,7 +261,7 @@
     </div>
 
     <script>
-    // --- CONFIGURATION ---
+    // --- 1. CONFIGURATION ---
     const SUPABASE_URL = "https://irthpbbqlhglvpazahft.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlydGhwYmJxbGhnbHZwYXphaGZ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzExMTkzODIsImV4cCI6MjA4NjY5NTM4Mn0.4Pp-NxsgSJO0RiNY5aM8rZ54NhUQkpYlOUib-WHgAks";
 
@@ -270,50 +270,51 @@
             persistSession: true,
             autoRefreshToken: true,
             detectSessionInUrl: true
-        }
+        },
+        // Aggressive timeout settings
+        realtime: {
+            params: {
+                eventsPerSecond: 10,
+            },
+        },
     });
 
     let currentUser = { id: "", name: "", email: "", verified: false };
     let activeHelpType = ""; 
     let cachedDoNowUrl = ""; 
     let isInitialized = false; 
-    let buttonResetTimer = null; 
 
-    // --- AUTH & CONNECTION LOGIC ---
+    // --- 2. NUCLEAR SIGN OUT (Fixes "Can't Sign Out") ---
+    // This function runs synchronously. It does not wait for the server.
+    // It kills the session locally and reloads the page.
+    window.handleSignOut = function() {
+        console.log("☢️ NUCLEAR SIGN OUT INITIATED");
+        try {
+            // Attempt to tell server, but don't care if it fails
+            supa.auth.signOut(); 
+        } catch (e) { /* ignore */ }
 
+        // 1. Wipe Storage
+        localStorage.clear();
+        sessionStorage.clear();
+        
+        // 2. Hard Reload (Forces browser to clear memory cache)
+        window.location.href = window.location.pathname;
+    }
+
+    // --- 3. AUTHENTICATION HANDLER ---
     async function signInWithGoogle() {
-        const { error } = await supa.auth.signInWithOAuth({
+        await supa.auth.signInWithOAuth({
             provider: 'google',
             options: { 
                 redirectTo: window.location.origin + window.location.pathname,
                 queryParams: { prompt: 'select_account' }
             }
         });
-        if (error) alert("Login failed: " + error.message);
     }
 
-    // NUCLEAR OPTION SIGN OUT
-    // Clears local data immediately so you never get stuck
-    async function handleSignOut() {
-        console.log("👋 Signing out...");
-        // 1. Clear local storage immediately (Force UI update)
-        localStorage.clear();
-        sessionStorage.clear();
-        
-        // 2. Try to tell Supabase, but don't wait forever
-        try {
-            await supa.auth.signOut(); 
-        } catch (e) {
-            console.log("Server signout timed out, local clear is sufficient.");
-        }
-
-        // 3. Hard Reload to flush memory
-        window.location.href = window.location.pathname; 
-    }
-
-    // --- MAIN EVENT LISTENER ---
     supa.auth.onAuthStateChange(async (event, session) => {
-        // Clear hash if present
+        // Clean URL hash if present
         if (event === 'SIGNED_IN' && window.location.hash.includes('access_token')) {
             window.history.replaceState(null, null, window.location.pathname);
         }
@@ -321,7 +322,7 @@
         const logoutBtn = document.getElementById('logout-btn');
         const userDisplay = document.getElementById('user-id-display');
 
-        // LOGGED OUT STATE
+        // LOGGED OUT
         if (event === 'SIGNED_OUT' || !session) {
             isInitialized = false; 
             currentUser = { id: "", name: "", email: "", verified: false };
@@ -334,20 +335,17 @@
             return; 
         }
 
-        // LOGGED IN STATE
+        // LOGGED IN
         currentUser.id = session.user.id;
         currentUser.email = session.user.email;
         currentUser.name = session.user.user_metadata.full_name || session.user.email;
-        currentUser.verified = true;
+        
+        // Auto-Link (Fire and Forget)
+        linkStudentAccount();
 
-        // Auto-Linker
-        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
-            linkStudentAccount();
-        }
-
-        // Init Dashboard (Run Once)
+        // UI Initialization (Only once per page load)
         if (!isInitialized) {
-            console.log("✅ Initializing Dashboard for:", currentUser.name);
+            console.log("✅ Session Active:", currentUser.name);
             
             if (userDisplay) {
                 userDisplay.innerText = `OPERATOR: ${currentUser.name}`;
@@ -359,62 +357,85 @@
             document.getElementById('login-overlay').style.display = 'none';
             document.getElementById('main-dashboard').classList.add('active');
 
-            subscribeToRoomChanges(); 
-            initStudentRealtime(currentUser.email);
-            fetchStudentProfile(currentUser.email);
+            // Force a fresh subscription setup
+            restartRealtimeConnections();
+            
             isInitialized = true; 
         }
     });
 
-    // Separated Auto-linker for cleanliness
-    async function linkStudentAccount() {
-        try {
-            const cleanName = currentUser.name.trim(); 
-            const { data: studentRecord } = await supa
-                .from('students')
-                .select('name, email')
-                .ilike('name', cleanName)
-                .maybeSingle();
+    // --- 4. THE DEFIBRILLATOR (Fixes "Zombie Connection") ---
+    // This kills all old connections and starts fresh.
+    async function restartRealtimeConnections() {
+        console.log("🔌 (Re)Starting Connections...");
+        
+        // 1. Kill everything
+        await supa.removeAllChannels();
 
-            if (studentRecord && !studentRecord.email) {
-                await supa.from('students').update({ email: currentUser.email }).ilike('name', cleanName);
-            }
-        } catch (err) { console.warn("Auto-linker warning:", err); }
+        // 2. Fetch Static Data
+        fetchStudentProfile(currentUser.email);
+
+        // 3. Start Room Listener
+        const roomChannel = supa.channel('room_updates')
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_settings', filter: 'id=eq.1' }, 
+            (payload) => { updateRoomUI(payload.new.mode); applySettingsUI(payload.new); })
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    console.log("✅ Connected to Room Settings");
+                    // Fetch initial state once connected
+                    supa.from('room_settings').select('*').eq('id', 1).single()
+                        .then(({data}) => { if(data) { updateRoomUI(data.mode); applySettingsUI(data); } });
+                }
+            });
+
+        // 4. Start Student Rank Listener
+        supa.channel('student-rank-sync')
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'students', filter: `email=eq.${currentUser.email}` }, 
+            (payload) => updateRankUI(payload.new))
+            .subscribe();
     }
 
-    // --- AGGRESSIVE RECONNECTION LOGIC ---
-    
-    // Called when tab wakes up or before critical actions
-    async function restoreConnection() {
-        if (!currentUser.id) return false;
-        
-        console.log("🔌 Verifying connection...");
-        // Check if we have a valid session, force refresh if needed
-        const { data, error } = await supa.auth.getSession();
-        
-        if (error || !data.session) {
-            console.warn("⚠️ Session stale, refreshing...");
-            const { data: refreshData, error: refreshError } = await supa.auth.refreshSession();
-            if (refreshError || !refreshData.session) {
-                console.error("❌ Cannot restore session. Relogin required.");
-                handleSignOut(); // Auto-logout if token is dead
-                return false;
+    // --- 5. WAKE UP HANDLER ---
+    document.addEventListener('visibilitychange', async () => {
+        if (document.visibilityState === 'visible') {
+            console.log("👁️ Tab Waking Up...");
+            
+            // CHECK 1: Is the token expired?
+            const { data: { session }, error } = await supa.auth.getSession();
+            
+            if (error || !session) {
+                console.log("❌ Session died while sleeping. Logging out.");
+                window.handleSignOut();
+                return;
             }
+
+            // CHECK 2: Force Refresh the token to be safe
+            const { error: refreshError } = await supa.auth.refreshSession();
+            if (refreshError) {
+                console.log("❌ Could not refresh token. Logging out.");
+                window.handleSignOut();
+                return;
+            }
+
+            // CHECK 3: Restart Realtime (The Defibrillator)
+            // We wait 500ms for the network card to wake up fully
+            setTimeout(restartRealtimeConnections, 500);
         }
-        return true;
+    });
+
+    // --- DATA LOGIC ---
+    async function linkStudentAccount() {
+        const cleanName = currentUser.name.trim(); 
+        const { data } = await supa.from('students').select('email').ilike('name', cleanName).maybeSingle();
+        if (data && !data.email) {
+            await supa.from('students').update({ email: currentUser.email }).ilike('name', cleanName);
+        }
     }
 
-    // --- DATA FETCHING ---
     async function fetchStudentProfile(email) {
         if (!email) return;
-        try {
-            const { data, error } = await supa.from('students').select('*').eq('email', email).maybeSingle();
-            if (error) throw error;
-            if (data) updateRankUI(data);
-        } catch (error) {
-            // Ignore abort/network errors silently
-            if (!error.message.includes('AbortError')) console.warn("Fetch issue:", error.message);
-        }
+        const { data, error } = await supa.from('students').select('*').eq('email', email).maybeSingle();
+        if (!error && data) updateRankUI(data);
     }
 
     function updateRankUI(data) {
@@ -430,37 +451,12 @@
         if (document.getElementById('std-name')) document.getElementById('std-name').innerText = data.name;
     }
 
-    async function subscribeToRoomChanges() {
-        const fetchSettings = async () => {
-            const { data } = await supa.from('room_settings').select('*').eq('id', 1).single();
-            if (data) { updateRoomUI(data.mode); applySettingsUI(data); }
-        };
-        fetchSettings();
-
-        supa.channel('room_updates')
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_settings', filter: 'id=eq.1' }, 
-            (payload) => { updateRoomUI(payload.new.mode); applySettingsUI(payload.new); })
-            .subscribe();
-    }
-
-    function initStudentRealtime(userEmail) {
-        supa.channel('student-rank-sync')
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'students', filter: `email=eq.${userEmail}` }, 
-            (payload) => updateRankUI(payload.new))
-            .subscribe();
-    }
-
     function applySettingsUI(data) {
         if (document.getElementById('donow-text')) document.getElementById('donow-text').innerText = data.do_now_text || "No Do Now assigned.";
         cachedDoNowUrl = data.do_now_url || "";
         if (document.getElementById('target-main-text')) document.getElementById('target-main-text').innerText = data.target_text || "...";
         if (document.getElementById('target-success-text')) document.getElementById('target-success-text').innerText = data.success_criteria || "...";
     }
-
-    document.getElementById('donow-link-container').onclick = () => {
-        if (cachedDoNowUrl) window.open(cachedDoNowUrl, '_blank');
-        else alert("No link provided for this Do Now.");
-    };
 
     function updateRoomUI(mode) {
         const bar = document.getElementById('status-bar');
@@ -476,6 +472,11 @@
     function showSlider(id) { hideAllSliders(); document.getElementById(id).style.display = 'flex'; }
     function hideAllSliders() { document.querySelectorAll('.slider:not(#login-overlay)').forEach(s => s.style.display = 'none'); }
     async function openRank() { showSlider('rank-display'); await fetchStudentProfile(currentUser.email); }
+    
+    document.getElementById('donow-link-container').onclick = () => {
+        if (cachedDoNowUrl) window.open(cachedDoNowUrl, '_blank');
+        else alert("No link provided for this Do Now.");
+    };
 
     function showHelpForm(type) {
         activeHelpType = type;
@@ -484,28 +485,23 @@
         const txtBox = document.getElementById('detail-text');
         const detailArea = document.getElementById('detail-area');
 
-        if (buttonResetTimer) clearTimeout(buttonResetTimer);
         if (btn) { btn.innerText = "SEND REQUEST"; btn.disabled = false; }
         if (txtBox) txtBox.value = ""; 
         if (detailArea) detailArea.style.display = (type === 'Question' || type === 'Hazard') ? 'flex' : 'none';
-        
         showSlider('help-form');
     }
 
-    // --- SUBMISSION SYSTEM (WITH PRE-FLIGHT CHECK) ---
-
+    // --- SUBMISSION SYSTEM (Fixes "Can't Send Message") ---
     async function translateStrict(text) {
         if (!text || text === "Standard Request") return text;
         try {
-            const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURI(text)}`, { signal: AbortSignal.timeout(3000) });
+            const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURI(text)}`);
             if (!res.ok) throw new Error("Translation Error");
             const data = await res.json();
             const translated = data[0][0][0];
             const lang = data[2]; 
             return (lang !== 'en' && lang !== 'en-US') ? `TR: ${translated} (Orig: ${text})` : text;
-        } catch (e) {
-            return text; // Fail gracefully
-        }
+        } catch (e) { return text; }
     }
 
     async function submitHelp() {
@@ -514,77 +510,67 @@
         const rawText = (detailsInput && detailsInput.offsetParent !== null) ? detailsInput.value.trim() : ""; 
 
         btn.disabled = true;
-        btn.innerText = "CONNECTING...";
+        btn.innerText = "CHECKING...";
 
         try {
-            // 1. PRE-FLIGHT: Ensure connection is alive before trying to send
-            const isConnected = await restoreConnection();
-            if (!isConnected) throw new Error("Connection lost. Relogin needed.");
-
-            // 2. DUPLICATE CHECK
-            if (['Test', 'Restroom'].includes(activeHelpType)) {
-                const { data, error } = await supa.from('help_requests').select('id').eq('student_id', currentUser.id).eq('type', activeHelpType).eq('status', 'pending'); 
-                if (error) throw error;
-                if (data.length > 0) throw new Error(`Pending ${activeHelpType} request exists.`);
+            // STEP 1: VERIFY CONNECTION BEFORE SENDING
+            const { error: sessionError } = await supa.auth.getSession();
+            if (sessionError) {
+                // Try one refresh
+                const { error: refreshErr } = await supa.auth.refreshSession();
+                if (refreshErr) throw new Error("Session Expired. Please Reload.");
             }
 
-            // 3. TRANSLATE
-            btn.innerText = "TRANSLATING...";
+            // STEP 2: DUPLICATE CHECK
+            if (['Test', 'Restroom'].includes(activeHelpType)) {
+                const { data, error } = await supa.from('help_requests')
+                    .select('id')
+                    .eq('student_id', currentUser.id)
+                    .eq('type', activeHelpType)
+                    .eq('status', 'pending');
+                
+                if (error) throw error;
+                if (data.length > 0) throw new Error(`You already have a pending request.`);
+            }
+
+            // STEP 3: PREPARE AND SEND
+            btn.innerText = "SENDING...";
             let finalDetails = rawText ? await translateStrict(rawText) : "Standard Request"; 
 
-            // 4. SEND
-            btn.innerText = "SENDING...";
             const { error: insertError } = await supa.from('help_requests').insert([{ 
-                student_id: currentUser.id, student_name: currentUser.name, type: activeHelpType, details: finalDetails, status: 'pending' 
+                student_id: currentUser.id, 
+                student_name: currentUser.name, 
+                type: activeHelpType, 
+                details: finalDetails, 
+                status: 'pending' 
             }]);
 
             if (insertError) throw insertError;
 
-            // 5. SUCCESS
+            // SUCCESS
             btn.innerText = "SENT!";
-            buttonResetTimer = setTimeout(() => { 
-                btn.disabled = false; btn.innerText = "SEND REQUEST"; 
+            setTimeout(() => { 
+                btn.disabled = false; 
+                btn.innerText = "SEND REQUEST"; 
                 if (detailsInput) detailsInput.value = ""; 
                 hideAllSliders(); 
             }, 1000);
 
         } catch (err) {
             console.error("Submit Error:", err);
-            
-            if (err.message.includes("Pending")) {
-                btn.innerText = "ALREADY SENT";
-                alert("You already have a request waiting!");
-            } 
-            else if (err.message.includes("Connection") || err.message.includes("Fetch")) {
-                 btn.innerText = "RETRYING...";
-                 // Auto-retry once
-                 setTimeout(submitHelp, 1500); 
-                 return;
-            }
-            else {
-                btn.innerText = "ERROR";
+            if (err.message.includes("pending")) {
+                alert("You already have a request waiting.");
+                btn.innerText = "WAIT";
+            } else if (err.message.includes("Session") || err.message.includes("JWT")) {
+                alert("Your connection timed out. Reloading...");
+                window.location.reload();
+            } else {
                 alert("Error: " + err.message);
+                btn.innerText = "RETRY";
+                btn.disabled = false;
             }
-            
-            btn.disabled = false;
         }
     }
-
-    // --- WAKE UP HANDLER ---
-    document.addEventListener('visibilitychange', async () => {
-        if (document.visibilityState === 'visible') {
-            console.log("👀 Waking up...");
-            // Force connection restore on wake
-            await restoreConnection();
-            if (currentUser.email) fetchStudentProfile(currentUser.email);
-        }
-    });
-
-    // --- ONLINE/OFFLINE HANDLERS ---
-    window.addEventListener('online', () => {
-        console.log("🌐 Network Online. Reconnecting...");
-        restoreConnection();
-    });
 
     function googleTranslateElementInit() {
         new google.translate.TranslateElement({pageLanguage: 'en', includedLanguages: 'en,pt,es', layout: google.translate.TranslateElement.InlineLayout.SIMPLE}, 'google_translate_element');
@@ -593,6 +579,7 @@
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
 
