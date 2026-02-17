@@ -276,32 +276,28 @@ const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let currentUser = { id: "", name: "", email: "", verified: false };
 let activeHelpType = ""; 
 let isOnCooldown = false;
-let cachedDoNowUrl = ""; // Stores the URL for the Do Now link
+let cachedDoNowUrl = ""; 
+let isInitialized = false; // Guardrail against double-loading
 
-// AUTH LOGIC
+// --- AUTH LOGIC ---
 async function signInWithGoogle() {
-    // This uses the EXACT current URL of the page you are standing on
     const targetUrl = window.location.href.split('#')[0].split('?')[0];
-    
     const { error } = await supa.auth.signInWithOAuth({
         provider: 'google',
         options: { 
             redirectTo: targetUrl,
-            queryParams: {
-                prompt: 'select_account'
-            }
+            queryParams: { prompt: 'select_account' }
         }
     });
     if (error) alert("Login failed: " + error.message);
 }
 
-let isInitialized = false; // Add this line outside/above the listener
-
+// --- MAIN EVENT LISTENER ---
 supa.auth.onAuthStateChange(async (event, session) => {
     const logoutBtn = document.getElementById('logout-btn');
     const userDisplay = document.getElementById('user-id-display');
 
-    // 1. Handle Sign Out
+    // 1. Handle Sign Out (Clean Slate)
     if (event === 'SIGNED_OUT' || !session) {
         isInitialized = false; 
         currentUser = { id: "", name: "", email: "", verified: false };
@@ -352,14 +348,7 @@ supa.auth.onAuthStateChange(async (event, session) => {
             userDisplay.style.display = 'block';
         }
 
-        // Fix the Logout Button
-        if (logoutBtn) {
-            logoutBtn.style.display = 'block';
-            logoutBtn.onclick = async () => {
-                await supa.auth.signOut();
-                window.location.reload(); // Refresh to ensure a clean state
-            };
-        }
+        if (logoutBtn) logoutBtn.style.display = 'block';
 
         document.getElementById('help-user-display').innerText = `Logged in as: ${currentUser.name}`;
         document.getElementById('login-overlay').style.display = 'none';
@@ -369,18 +358,18 @@ supa.auth.onAuthStateChange(async (event, session) => {
         subscribeToRoomChanges(); 
         initStudentRealtime(currentUser.email);
 
-        isInitialized = true; // Close the door
+        isInitialized = true; // Lock the door
     }
 });
+
 // --- REAL-TIME RANK UPDATER ---
 function initStudentRealtime(userEmail) {
-    // studentId here is the UUID (session.user.id)
     supa.channel('student-rank-sync')
         .on('postgres_changes', { 
             event: 'UPDATE', 
             schema: 'public', 
             table: 'students', 
-            filter: `google_id=eq.${userEmail}` // CHANGED FROM id TO google_id
+            filter: `email=eq.${userEmail}` // FIX: Changed 'google_id' to 'email' to match your DB
         }, 
         (payload) => {
             console.log("Rank updated in real-time!", payload.new);
@@ -401,10 +390,7 @@ function updateRankUI(data) {
         const el = document.getElementById(field.id);
         if (el) {
             let rankValue = data[field.key] || "-";
-            // Add the trophy if they've hit the max rank
-            if (rankValue === "Master 3") {
-                rankValue += " 🏆";
-            }
+            if (rankValue === "Master 3") rankValue += " 🏆";
             el.innerText = rankValue;
         }
     });
@@ -414,7 +400,7 @@ function updateRankUI(data) {
     }
 }
 
-// --- REAL-TIME ROOM SETTINGS (DO NOW / TARGETS) ---
+// --- REAL-TIME ROOM SETTINGS ---
 async function subscribeToRoomChanges() {
     // 1. Initial Load
     const { data } = await supa.from('room_settings').select('*').eq('id', 1).single();
@@ -427,6 +413,7 @@ async function subscribeToRoomChanges() {
     supa.channel('room_updates')
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_settings', filter: 'id=eq.1' }, 
         (payload) => {
+            // ONLY update UI, do not reload page
             updateRoomUI(payload.new.mode);
             applySettingsUI(payload.new);
         })
@@ -434,16 +421,13 @@ async function subscribeToRoomChanges() {
 }
 
 function applySettingsUI(data) {
-    // Update Do Now
     if (document.getElementById('donow-text')) document.getElementById('donow-text').innerText = data.do_now_text || "No Do Now assigned.";
     cachedDoNowUrl = data.do_now_url || "";
     
-    // Update Targets
     if (document.getElementById('target-main-text')) document.getElementById('target-main-text').innerText = data.target_text || "...";
     if (document.getElementById('target-success-text')) document.getElementById('target-success-text').innerText = data.success_criteria || "...";
 }
 
-// Handle Do Now Link Click
 document.getElementById('donow-link-container').onclick = () => {
     if (cachedDoNowUrl) window.open(cachedDoNowUrl, '_blank');
     else alert("No link provided for this Do Now.");
@@ -458,7 +442,7 @@ function updateRoomUI(mode) {
 
     bar.style.background = m === 'silent' ? '#d32f2f' : (m === 'whisper' ? '#fbc02d' : '#388e3c');
     bar.style.color = m === 'whisper' ? '#1a1a1a' : '#ffffff';
-    statusText.innerText = icons[m] || icons.collaborate;
+    statusText.innerText = icons[m] || icons['collaborate'];
 }
 
 function showSlider(id) { 
@@ -475,86 +459,65 @@ async function openRank() {
     const { data: { user } } = await supa.auth.getUser();
     if (!user) return;
 
-    // Use maybeSingle() instead of single() to avoid the 406 error crash
     const { data, error } = await supa
         .from('students')
         .select('*')
-        .or(`email.eq.${user.email},name.eq.${currentUser.name}`) // Look for Email OR Name
+        .or(`email.eq.${user.email},name.eq.${currentUser.name}`) 
         .maybeSingle(); 
 
-    if (error) {
-        console.error("Rank fetch error:", error.message);
-        return;
-    }
-
-    if (data) {
-        updateRankUI(data);
-    } else {
-        console.warn("No data found for this student yet.");
-    }
+    if (error) console.error("Rank fetch error:", error.message);
+    else if (data) updateRankUI(data);
+    else console.warn("No data found for this student yet.");
 }
-// --- HELP REQUESTS ---
-// --- AUTO-TRANSLATION HELPER ---
-// --- HELP REQUESTS ---
 
-/**
- * Toggles the UI to show the specific help form (Question, Test, etc.)
- */
+// --- HELP REQUESTS ---
 function showHelpForm(type) {
     activeHelpType = type;
     document.getElementById('form-title').innerText = type + " Request";
-    
-    // Show the text area only for Questions or Hazards
     const detailArea = document.getElementById('detail-area');
     if (detailArea) {
         detailArea.style.display = (type === 'Question' || type === 'Hazard') ? 'flex' : 'none';
     }
-    
     showSlider('help-form');
 }
 
-/**
- * Detects language and translates to English if necessary
- */
 async function translateIfNecessary(text) {
     if (!text || text === "Standard Request") return text;
     try {
         const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURI(text)}`);
         const data = await res.json();
-        
         const translatedText = data[0][0][0];
-        const detectedLang = data[2]; // e.g., "es" or "pt"
-
+        const detectedLang = data[2]; 
         if (detectedLang !== 'en' && detectedLang !== 'en-US') {
             return `TR: ${translatedText} (Orig: ${text})`;
         }
         return text;
     } catch (e) {
-        console.error("Translation failed, sending original:", e);
         return text; 
     }
 }
 
-/**
- * Sends the request to Supabase
- */
 async function submitHelp() {
-    const detailInput = document.getElementById('detail-text');
-    const rawDetails = detailInput ? detailInput.value.trim() : "";
     const btn = document.getElementById('submit-help-btn');
+    const rawDetails = document.getElementById('help-details').value; // Grab text
     
-    if (!currentUser.id) return alert("Session expired. Please refresh.");
-
-    btn.innerText = "TRANSMITTING..."; 
     btn.disabled = true;
+    btn.innerText = "TRANSMITTING...";
+
+    // 1. TIMEOUT PROTECTION
+    const timeout = setTimeout(() => {
+        if (btn.disabled) {
+            btn.disabled = false;
+            btn.innerText = "RETRY SEND";
+            console.error("Transmission timed out.");
+        }
+    }, 5000);
 
     try {
-        // 1. Process Translation
-        const finalDetails = await translateIfNecessary(rawDetails || "Standard Request");
+        // 2. TRANSLATE BEFORE SENDING
+        const finalDetails = await translateIfNecessary(rawDetails);
 
-        // 2. Insert into Database
         const { error } = await supa.from('help_requests').insert([{ 
-            // We use the current session info directly so it's always accurate
             student_id: currentUser.id, 
             student_name: currentUser.name, 
             type: activeHelpType, 
@@ -562,42 +525,36 @@ async function submitHelp() {
             status: 'pending' 
         }]);
 
+        clearTimeout(timeout); 
+
         if (error) throw error;
 
-        // 3. UI Feedback
-        startCooldown((activeHelpType === 'Question' || activeHelpType === 'Hazard') ? 10 : 30);
-        hideAllSliders();
-        if (detailInput) detailInput.value = "";
-        
-    } catch(e) { 
-        alert("Error: " + e.message);
-    } finally { 
-        btn.innerText = "SEND REQUEST"; 
-        btn.disabled = false; 
+        btn.innerText = "SENT!";
+        setTimeout(() => { btn.disabled = false; btn.innerText = "SEND REQUEST"; }, 2000);
+    } catch (err) {
+        console.error("Help Request Failed:", err.message);
+        btn.disabled = false;
+        btn.innerText = "SEND FAILED - TRY AGAIN";
     }
-}
-
-function startCooldown(s) {
-    isOnCooldown = true;
-    document.getElementById('cooldown-overlay').style.display = 'flex';
-    let rem = s;
-    const inv = setInterval(() => {
-        document.getElementById('cooldown-timer').innerText = `Wait ${rem}s`;
-        if (rem-- <= 0) { clearInterval(inv); isOnCooldown = false; document.getElementById('cooldown-overlay').style.display = 'none'; }
-    }, 1000);
 }
 
 function googleTranslateElementInit() {
     new google.translate.TranslateElement({pageLanguage: 'en', includedLanguages: 'en,pt,es', layout: google.translate.TranslateElement.InlineLayout.SIMPLE}, 'google_translate_element');
 }
 
-async function handleSignOut() {
+// --- EMERGENCY LOGOUT LISTENER (Outside all other logic) ---
+document.getElementById('logout-btn').addEventListener('click', async (e) => {
+    e.preventDefault();
+    console.log("Emergency Logout Triggered");
     await supa.auth.signOut();
-}
+    localStorage.clear();
+    window.location.href = window.location.pathname; // Hard Refresh
+});
     </script>
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
 
