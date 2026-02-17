@@ -474,8 +474,14 @@ async function openRank() {
 function showHelpForm(type) {
     activeHelpType = type;
     document.getElementById('form-title').innerText = type + " Request";
+    
+    // Clear the text box so old messages don't linger
+    const txtBox = document.getElementById('detail-text');
+    if(txtBox) txtBox.value = ""; 
+
     const detailArea = document.getElementById('detail-area');
     if (detailArea) {
+        // Only show text box for Question or Hazard
         detailArea.style.display = (type === 'Question' || type === 'Hazard') ? 'flex' : 'none';
     }
     showSlider('help-form');
@@ -499,18 +505,21 @@ async function translateIfNecessary(text) {
 
 async function submitHelp() {
     const btn = document.getElementById('submit-help-btn');
-    const detailsInput = document.getElementById('help-details');
     
-    // 1. GRAB INPUT (Safely)
-    // If the box is open, get the text. If not, empty string.
-    const rawText = detailsInput ? detailsInput.value.trim() : ""; 
+    // FIX 1: Use the CORRECT ID from your HTML
+    const detailsInput = document.getElementById('detail-text'); 
+    
+    // FIX 2: Only grab text if the box is actually visible to the user
+    // (Prevents hidden text from being sent with a Bathroom request)
+    const isVisible = detailsInput && detailsInput.offsetParent !== null;
+    const rawText = isVisible ? detailsInput.value.trim() : ""; 
 
     btn.disabled = true;
     btn.innerText = "CHECKING...";
 
     try {
-        // 2. ANTI-SPAM CHECK
-        // "Does this student already have a pending request of this exact type?"
+        // --- LOGIC GATE: ANTI-SPAM ---
+        // This requires the SQL Policy added in Step 1 to work!
         const { data: existingRequests, error: checkError } = await supa
             .from('help_requests')
             .select('id')
@@ -524,46 +533,45 @@ async function submitHelp() {
             throw new Error(`You already have a pending ${activeHelpType} request.`);
         }
 
-        // 3. PREPARE MESSAGE (Translation Logic Restored)
+        // --- PREPARE MESSAGE ---
         btn.innerText = "TRANSMITTING...";
         
-        let finalDetails = "Standard Request"; // Default fallback
+        let finalDetails = "Standard Request"; 
 
+        // If they typed text (and the box was visible), translate it
         if (rawText) {
-            // ✅ HERE IS YOUR TRANSLATION LOGIC
-            // If they typed something, we translate it before sending.
             console.log("Translating text:", rawText);
+            // Translate function call
             finalDetails = await translateIfNecessary(rawText);
         }
 
-        // 4. SEND TO SUPABASE
+        // --- SEND TO DATABASE ---
         const { error: insertError } = await supa.from('help_requests').insert([{ 
             student_id: currentUser.id, 
             student_name: currentUser.name, 
             type: activeHelpType, 
-            details: finalDetails, // Sends either the translated text OR "Standard Request"
+            details: finalDetails, 
             status: 'pending' 
         }]);
 
         if (insertError) throw insertError;
 
-        // 5. SUCCESS
+        // --- SUCCESS ---
         btn.innerText = "SENT!";
         setTimeout(() => { 
             btn.disabled = false; 
             btn.innerText = "SEND REQUEST"; 
-            if (detailsInput) detailsInput.value = ""; // Clear box
-            hideAllSliders(); // Close menu
+            if (detailsInput) detailsInput.value = ""; 
+            hideAllSliders(); 
         }, 1500);
 
     } catch (err) {
         console.error("Request Failed:", err.message);
         btn.disabled = false;
         
-        // Nice error message for the spam check
         if (err.message.includes("already have a pending")) {
-            btn.innerText = "ALREADY ACTIVE";
-            alert("Hold on! " + err.message);
+            btn.innerText = "WAIT";
+            alert("🛑 Hold on! " + err.message);
         } else {
             btn.innerText = "SEND FAILED";
             alert("Error: " + err.message);
@@ -586,6 +594,7 @@ document.getElementById('logout-btn').addEventListener('click', async (e) => {
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
 
