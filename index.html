@@ -499,8 +499,12 @@ async function translateIfNecessary(text) {
 
 async function submitHelp() {
     const btn = document.getElementById('submit-help-btn');
-    const rawDetails = document.getElementById('help-details').value; // Grab text
+    // SAFE CHECK: Does the text box actually exist?
+    const detailsInput = document.getElementById('help-details');
     
+    // If the box exists, grab the text. If not, use the help type as the text.
+    const rawDetails = detailsInput ? detailsInput.value : activeHelpType;
+
     btn.disabled = true;
     btn.innerText = "TRANSMITTING...";
 
@@ -514,14 +518,15 @@ async function submitHelp() {
     }, 5000);
 
     try {
-        // 2. TRANSLATE BEFORE SENDING
+        // 2. TRANSLATE IF NEEDED
+        // Only translate if there is actual text to translate
         const finalDetails = await translateIfNecessary(rawDetails);
 
         const { error } = await supa.from('help_requests').insert([{ 
             student_id: currentUser.id, 
             student_name: currentUser.name, 
             type: activeHelpType, 
-            details: finalDetails, 
+            details: finalDetails, // Uses the safe text we grabbed above
             status: 'pending' 
         }]);
 
@@ -530,11 +535,20 @@ async function submitHelp() {
         if (error) throw error;
 
         btn.innerText = "SENT!";
-        setTimeout(() => { btn.disabled = false; btn.innerText = "SEND REQUEST"; }, 2000);
+        
+        // Reset the button after 2 seconds
+        setTimeout(() => { 
+            btn.disabled = false; 
+            btn.innerText = "SEND REQUEST"; 
+            // Clear the text box only if it exists
+            if (detailsInput) detailsInput.value = "";
+        }, 2000);
+
     } catch (err) {
         console.error("Help Request Failed:", err.message);
         btn.disabled = false;
         btn.innerText = "SEND FAILED - TRY AGAIN";
+        alert("Error sending request: " + err.message);
     }
 }
 
@@ -554,6 +568,7 @@ document.getElementById('logout-btn').addEventListener('click', async (e) => {
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
 
