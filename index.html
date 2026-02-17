@@ -574,23 +574,36 @@
         new google.translate.TranslateElement({pageLanguage: 'en', includedLanguages: 'en,pt,es', layout: google.translate.TranslateElement.InlineLayout.SIMPLE}, 'google_translate_element');
     }
 
-// --- LOGOUT (Global Scope Fix) ---
+// --- LOGOUT (The "Nuclear" Version) ---
 window.handleSignOut = async function() {
     console.log("🛑 Sign out triggered...");
     
-    // 1. Try to sign out of Supabase
-    try {
-        const { error } = await supa.auth.signOut();
-        if (error) console.error("Supabase logout warning:", error);
-    } catch (err) {
-        console.error("Logout network error:", err);
+    // 1. Immediate UI Feedback (so you know it was clicked)
+    const btn = document.getElementById('logout-btn');
+    if (btn) {
+        btn.innerText = "👋 BYE...";
+        btn.disabled = true;
     }
 
-    // 2. Nuclear Option: Clear everything and force reload
+    // 2. Clear Local Storage INSTANTLY
+    // We do this before the network request so the session is dead locally no matter what.
     localStorage.clear();
     sessionStorage.clear();
-    
-    // 3. Force a hard reload to the login page
+
+    // 3. Fire-and-Forget Network Logout
+    // We attempt to tell Supabase we are leaving, but we limit the wait to 500ms.
+    // If the network is zombie, we don't care. We move on.
+    try {
+        const timeOut = new Promise(resolve => setTimeout(resolve, 500));
+        const networkLogout = supa.auth.signOut();
+        await Promise.race([networkLogout, timeOut]);
+    } catch (err) {
+        console.warn("Network logout timed out (ignoring):", err);
+    }
+
+    // 4. Force Hard Reload
+    // This wipes the memory and re-runs the script. 
+    // Since localStorage is empty, the script will see !session and show the login screen.
     window.location.href = window.location.pathname;
 }
 </script>
