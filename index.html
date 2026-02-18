@@ -508,14 +508,14 @@
         try {
             // 1. SELECTIVE LIMIT CHECK
             if (['Test', 'Restroom'].includes(activeHelpType)) {
-                const { data: existingRequests, error: checkError } = await supa
-                    .from('help_requests')
-                    .select('id')
-                    .eq('student_id', currentUser.id)
-                    .eq('type', activeHelpType)
-                    .eq('status', 'pending'); 
+    const { data: existingRequests, error: checkError } = await supa
+        .from('help_requests')
+        .select('id')
+        .eq('student_email', currentUser.email) // <--- Changed from student_id
+        .eq('type', activeHelpType)
+        .eq('status', 'pending'); 
 
-                if (checkError) throw checkError;
+    if (checkError) throw checkError;
 
                 if (existingRequests && existingRequests.length > 0) {
                     throw new Error(`You already have a pending ${activeHelpType} request.`);
@@ -530,15 +530,17 @@
                 finalDetails = await translateStrict(rawText);
             }
 
-            // 3. SEND TO DB
-            btn.innerText = "SENDING...";
-            const { error: insertError } = await supa.from('help_requests').insert([{ 
-                student_id: currentUser.id, 
-                student_name: currentUser.name, 
-                type: activeHelpType, 
-                details: finalDetails, 
-                status: 'pending' 
-            }]);
+            // index.html - Inside submitHelp()
+// 3. SEND TO DB
+btn.innerText = "SENDING...";
+const { error: insertError } = await supa.from('help_requests').insert([{ 
+    student_id: currentUser.id, // Supabase UUID
+    student_name: currentUser.name, 
+    student_email: currentUser.email, // <--- THE KEY ADDITION
+    type: activeHelpType, 
+    details: finalDetails, 
+    status: 'pending' 
+}]);
 
             if (insertError) throw insertError;
 
@@ -613,3 +615,4 @@ window.handleSignOut = async function() {
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
