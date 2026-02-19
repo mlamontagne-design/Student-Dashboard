@@ -12,7 +12,74 @@
             --accent-blue: #03a9f4;
             --accent-green: #4caf50;
             --text-main: #e0e0e0;
+            --key-default: #252525;
+            --key-green: #2e7d32;
+            --key-yellow: #f9a825;
+            --key-red: #c62828;
+            --key-border: #3d3d3d;
+            --kb-width: 820px; 
+            --key-size: 50px;
+            --key-gap: 8px;
         }
+
+        /* --- KEYBOARD & DRAWER ADDITIONS --- */
+
+/* The Hidden Drawer */
+.drawer {
+    max-height: 0;
+    overflow: hidden;
+    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    background: #121212;
+    opacity: 0;
+    width: 100%;
+}
+.drawer.open {
+    max-height: 500px;
+    opacity: 1;
+    padding: 15px 0;
+}
+
+.wip-banner {
+    position: relative;
+    background: rgba(3, 169, 244, 0.05);
+    border: 1px dashed var(--accent-blue);
+    padding: 10px;
+    text-align: center;
+    margin-bottom: 10px;
+    overflow: hidden;
+}
+
+.scanner-line {
+    position: absolute; top: 0; left: 0; width: 100%; height: 2px;
+    background: var(--accent-blue); box-shadow: 0 0 10px var(--accent-blue);
+    animation: scan 3s infinite linear; opacity: 0.5;
+}
+@keyframes scan { 0% { top: 0; } 100% { top: 100%; } }
+
+/* Keyboard Overlay Specifics */
+#keyboard-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.98);
+    display: none; flex-direction: column; align-items: center;
+    justify-content: center; z-index: 2000;
+}
+.keyboard-chassis {
+    width: var(--kb-width); background: #1a1a1a; padding: 20px;
+    border-radius: 16px; border: 2px solid #333; display: flex;
+    flex-direction: column; gap: var(--key-gap);
+}
+.key-row { display: flex; gap: var(--key-gap); width: 100%; justify-content: space-between; }
+.key {
+    height: var(--key-size); width: var(--key-size); background: var(--key-default);
+    border-radius: 6px; display: flex; align-items: center; justify-content: center;
+    font-size: 0.8rem; border: 1px solid var(--key-border); color: #bbb;
+}
+.key.top-row { height: 30px; flex-grow: 1; font-size: 0.6rem; }
+.key.space { width: 380px; }
+.key.ctrl-l, .key.alt-l { width: 80px; }
+.key.ctrl-r, .key.alt-r { width: 55px; }
+.key.green { background: var(--key-green); color: white; }
+.key.yellow { background: var(--key-yellow); color: #000; }
+.key.red { background: var(--key-red); color: white; }
 
         /* --- GOOGLE TRANSLATE OVERRIDES --- */
        #translate-wrapper { 
@@ -222,19 +289,40 @@
             </div>
         </div>
 
-        <div class="card" onclick="openRank()">
-            <div class="card-icon">🏆</div><div>My Rank</div>
-            <div id="rank-display" class="slider" onclick="event.stopPropagation()">
-                <div class="slider-header"><span id="std-name" style="color: var(--accent-blue);">---</span></div>
-                <table class="rank-table">
-                    <tr><td>Typing</td><td id="r-type" class="rank-val">-</td></tr>
-                    <tr><td>OS</td><td id="r-os" class="rank-val">-</td></tr>
-                    <tr><td>Sheets</td><td id="r-sheet" class="rank-val">-</td></tr>
-                    <tr><td>Web Dev</td><td id="r-web" class="rank-val">-</td></tr>
-                </table>
-                <div class="back" onclick="hideAllSliders()">CLOSE</div>
+        <div class="card">
+    <div onclick="openRank()" style="width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+        <div class="card-icon">🏆</div><div>My Rank</div>
+    </div>
+    
+    <div id="rank-display" class="slider" onclick="event.stopPropagation()">
+        <div class="slider-header"><span id="std-name" style="color: var(--accent-blue);">---</span></div>
+        
+        <table class="rank-table">
+            <tr onclick="toggleTypingDrawer()" style="cursor:pointer;">
+                <td style="color:var(--accent-blue); font-weight:bold;">⌨️ Typing</td>
+                <td id="r-type" class="rank-val">-</td>
+            </tr>
+        </table>
+
+        <div id="typing-drawer" class="drawer">
+            <div class="wip-banner">
+                <span class="scanner-line"></span>
+                <p style="font-size:0.7rem; margin:0;">INITIALIZING DATA LINK...</p>
+                <p style="font-size:0.6rem; color:#666; margin:0;">SQL Analytics Pending Connection</p>
             </div>
+            <button class="btn" style="font-size:0.8rem; padding:8px;" onclick="document.getElementById('keyboard-overlay').style.display='flex'">
+                VIEW MASTERY MAP (PREVIEW)
+            </button>
         </div>
+
+        <table class="rank-table">
+            <tr><td>OS</td><td id="r-os" class="rank-val">-</td></tr>
+            <tr><td>Sheets</td><td id="r-sheet" class="rank-val">-</td></tr>
+            <tr><td>Web Dev</td><td id="r-web" class="rank-val">-</td></tr>
+        </table>
+        <div class="back" onclick="hideAllSliders()">CLOSE</div>
+    </div>
+</div>
 
         <div class="card" id="help-card" onclick="if(!isOnCooldown) showSlider('help-main')">
             <div class="card-icon">🙋‍♂️</div><div>Help</div>
@@ -611,8 +699,33 @@ window.handleSignOut = async function() {
     // Since localStorage is empty, the script will see !session and show the login screen.
     window.location.href = window.location.pathname;
 }
+        function toggleTypingDrawer() {
+    const drawer = document.getElementById('typing-drawer');
+    drawer.classList.toggle('open');
+}
 </script>
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
+    <div id="keyboard-overlay">
+    <div class="keyboard-chassis">
+        <div class="key-row">
+            <div class="key top-row">esc</div><div class="key top-row">←</div><div class="key top-row">→</div><div class="key top-row">↻</div>
+            <div class="key top-row">▢</div><div class="key top-row">▢||</div><div class="key top-row">🔅</div><div class="key top-row">🔆</div>
+            <div class="key top-row">🔇</div><div class="key top-row">🔈</div><div class="key top-row">🔊</div><div class="key top-row">🔒</div>
+        </div>
+        <div class="key-row">
+            <div class="key" style="width:90px">search</div><div class="key green">a</div><div class="key green">s</div><div class="key yellow">d</div><div class="key green">f</div>
+            <div class="key">g</div><div class="key">h</div><div class="key green">j</div><div class="key green">k</div><div class="key green">l</div><div class="key">;</div><div class="key">'</div><div class="key" style="width:100px">enter</div>
+        </div>
+        <div class="key-row">
+            <div class="key ctrl-l">ctrl</div><div class="key alt-l">alt</div>
+            <div class="key space"></div>
+            <div class="key alt-r">alt</div><div class="key ctrl-r">ctrl</div>
+            <div class="key" style="width:100px">arrows</div>
+        </div>
+    </div>
+    <button class="btn" style="margin-top:30px; width:200px;" onclick="document.getElementById('keyboard-overlay').style.display='none'">RETURN</button>
+</div>
 </body>
 </html>
+
 
