@@ -344,7 +344,16 @@
         // 4. UI & LISTENERS (Run Once)
         if (!isInitialized && currentUser.verified) {
             console.log("✅ Initializing Dashboard for:", currentUser.name);
-            
+            const { data: profile } = await supa
+        .from('students')
+        .select('google_course_id')
+        .eq('email', currentUser.email)
+        .maybeSingle();
+
+    if (profile) {
+        currentUser.google_course_id = profile.google_course_id;
+        console.log("📍 Student Class ID assigned:", currentUser.google_course_id);
+    }
             // Update User UI
             const userDisplay = document.getElementById('user-id-display');
             const logoutBtn = document.getElementById('logout-btn');
@@ -537,6 +546,7 @@ const { error: insertError } = await supa.from('help_requests').insert([{
     student_id: currentUser.id, // Supabase UUID
     student_name: currentUser.name, 
     student_email: currentUser.email, // <--- THE KEY ADDITION
+    google_course_id: currentUser.google_course_id,
     type: activeHelpType, 
     details: finalDetails, 
     status: 'pending' 
@@ -615,3 +625,4 @@ window.handleSignOut = async function() {
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
