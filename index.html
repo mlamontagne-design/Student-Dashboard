@@ -346,12 +346,13 @@
             console.log("✅ Initializing Dashboard for:", currentUser.name);
             const { data: profile } = await supa
         .from('students')
-        .select('google_course_id')
+        .select('google_course_id, name')
         .eq('email', currentUser.email)
         .maybeSingle();
 
     if (profile) {
-        currentUser.google_course_id = profile.google_course_id;
+        currentUser.google_course_id = profile.google_course_id
+        currentUser.name = profile.name || currentUser.name;
         console.log("📍 Student Class ID assigned:", currentUser.google_course_id);
     }
             // Update User UI
@@ -373,7 +374,7 @@
                 window.history.replaceState(null, null, window.location.pathname);
             }
 
-            subscribeToRoomChanges(); 
+            subscribeToRoomChanges(currentUser.google_course_id); 
             initStudentRealtime(currentUser.email);
             isInitialized = true; 
         }
@@ -404,12 +405,13 @@
         if (document.getElementById('std-name')) document.getElementById('std-name').innerText = data.name;
     }
 
-    async function subscribeToRoomChanges() {
-        const { data } = await supa.from('room_settings').select('*').eq('id', 1).single();
+    async function subscribeToRoomChanges(courseId) {
+        const { data } = await supa.from('room_settings').select('*').eq('google_course_id', courseId).maybeSingle();
         if (data) { updateRoomUI(data.mode); applySettingsUI(data); }
 
         supa.channel('room_updates')
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_settings', filter: 'id=eq.1' }, 
+            // Change this line:
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_settings', filter: `google_course_id=eq.${courseId}` }, 
             (payload) => { updateRoomUI(payload.new.mode); applySettingsUI(payload.new); })
             .subscribe();
     }
@@ -427,6 +429,7 @@
     };
 
     function updateRoomUI(mode) {
+        if (!mode) return;
         const bar = document.getElementById('status-bar');
         const statusText = document.getElementById('status-text');
         const m = mode.toLowerCase();
@@ -625,4 +628,5 @@ window.handleSignOut = async function() {
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
