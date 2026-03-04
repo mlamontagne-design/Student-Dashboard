@@ -406,18 +406,37 @@
     }
 
     async function subscribeToRoomChanges(courseId) {
-        if (!courseId) {
-            console.warn("⚠️ No Course ID found for student. Using default.");
+        console.log("🛠️ Syncing Room for Course:", courseId);
+
+        // Fix: If courseId is missing, we fetch the default settings (ID 1) 
+        // and skip the eq() filter that causes the 400 error.
+        let query = supa.from('room_settings').select('*');
+        
+        if (courseId) {
+            query = query.eq('google_course_id', courseId);
+        } else {
+            query = query.eq('id', 1); // Fallback to master row
         }
-        const { data } = await supa.from('room_settings').select('*').eq('google_course_id', courseId).maybeSingle();
-        if (data) { updateRoomUI(data.mode); applySettingsUI(data); }
+
+        const { data } = await query.maybeSingle();
+        
+        if (data) { 
+            updateRoomUI(data.mode); 
+            applySettingsUI(data); 
+        } else if (!courseId) {
+            // If even the fallback fails, force UI out of "Connecting"
+            updateRoomUI('collaborate');
+        }
+
+        // Fix: Realtime filter syntax check
+        const filterStr = courseId ? `google_course_id=eq.${courseId}` : undefined;
 
         supa.channel('room_updates')
             .on('postgres_changes', { 
                 event: 'UPDATE', 
                 schema: 'public', 
                 table: 'room_settings', 
-                filter: `google_course_id=eq.${courseId}` 
+                filter: filterStr 
             }, (payload) => { 
                 updateRoomUI(payload.new.mode); 
                 applySettingsUI(payload.new); 
@@ -438,15 +457,14 @@
     };
 
     function updateRoomUI(mode) {
-        if (!mode) return;
         const bar = document.getElementById('status-bar');
         const statusText = document.getElementById('status-text');
-        if (!mode) {
-            statusText.innerText = "📡 CONNECTED";
-            return;
-        }
-        const m = mode.toLowerCase();
+        
+        // Ensure we always have a mode string to avoid hangs
+        const m = (mode || 'collaborate').toLowerCase();
+        
         const icons = { silent: '🤫 SILENT', whisper: '🔉 WHISPER', collaborate: '🗣️ COLLABORATE' };
+        
         bar.style.background = m === 'silent' ? '#d32f2f' : (m === 'whisper' ? '#fbc02d' : '#388e3c');
         bar.style.color = m === 'whisper' ? '#1a1a1a' : '#ffffff';
         statusText.innerText = icons[m] || icons['collaborate'];
@@ -641,6 +659,7 @@ window.handleSignOut = async function() {
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
 
