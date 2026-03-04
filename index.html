@@ -406,13 +406,22 @@
     }
 
     async function subscribeToRoomChanges(courseId) {
+        if (!courseId) {
+            console.warn("⚠️ No Course ID found for student. Using default.");
+        }
         const { data } = await supa.from('room_settings').select('*').eq('google_course_id', courseId).maybeSingle();
         if (data) { updateRoomUI(data.mode); applySettingsUI(data); }
 
         supa.channel('room_updates')
-            // Change this line:
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_settings', filter: `google_course_id=eq.${courseId}` }, 
-            (payload) => { updateRoomUI(payload.new.mode); applySettingsUI(payload.new); })
+            .on('postgres_changes', { 
+                event: 'UPDATE', 
+                schema: 'public', 
+                table: 'room_settings', 
+                filter: `google_course_id=eq.${courseId}` 
+            }, (payload) => { 
+                updateRoomUI(payload.new.mode); 
+                applySettingsUI(payload.new); 
+            })
             .subscribe();
     }
 
@@ -432,6 +441,10 @@
         if (!mode) return;
         const bar = document.getElementById('status-bar');
         const statusText = document.getElementById('status-text');
+        if (!mode) {
+            statusText.innerText = "📡 CONNECTED";
+            return;
+        }
         const m = mode.toLowerCase();
         const icons = { silent: '🤫 SILENT', whisper: '🔉 WHISPER', collaborate: '🗣️ COLLABORATE' };
         bar.style.background = m === 'silent' ? '#d32f2f' : (m === 'whisper' ? '#fbc02d' : '#388e3c');
@@ -628,5 +641,6 @@ window.handleSignOut = async function() {
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
+
 
 
