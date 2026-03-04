@@ -346,13 +346,12 @@
             console.log("✅ Initializing Dashboard for:", currentUser.name);
             const { data: profile } = await supa
         .from('students')
-        .select('google_course_id, name')
+        .select('google_course_id')
         .eq('email', currentUser.email)
         .maybeSingle();
 
     if (profile) {
-        currentUser.google_course_id = profile.google_course_id
-        currentUser.name = profile.name || currentUser.name;
+        currentUser.google_course_id = profile.google_course_id;
         console.log("📍 Student Class ID assigned:", currentUser.google_course_id);
     }
             // Update User UI
@@ -374,7 +373,7 @@
                 window.history.replaceState(null, null, window.location.pathname);
             }
 
-            subscribeToRoomChanges(currentUser.google_course_id); 
+            subscribeToRoomChanges(); 
             initStudentRealtime(currentUser.email);
             isInitialized = true; 
         }
@@ -405,42 +404,13 @@
         if (document.getElementById('std-name')) document.getElementById('std-name').innerText = data.name;
     }
 
-    async function subscribeToRoomChanges(courseId) {
-        console.log("🛠️ Syncing Room for Course:", courseId);
-
-        // Fix: If courseId is missing, we fetch the default settings (ID 1) 
-        // and skip the eq() filter that causes the 400 error.
-        let query = supa.from('room_settings').select('*');
-        
-        if (courseId) {
-            query = query.eq('google_course_id', courseId);
-        } else {
-            query = query.eq('id', 1); // Fallback to master row
-        }
-
-        const { data } = await query.maybeSingle();
-        
-        if (data) { 
-            updateRoomUI(data.mode); 
-            applySettingsUI(data); 
-        } else if (!courseId) {
-            // If even the fallback fails, force UI out of "Connecting"
-            updateRoomUI('collaborate');
-        }
-
-        // Fix: Realtime filter syntax check
-        const filterStr = courseId ? `google_course_id=eq.${courseId}` : undefined;
+    async function subscribeToRoomChanges() {
+        const { data } = await supa.from('room_settings').select('*').eq('id', 1).single();
+        if (data) { updateRoomUI(data.mode); applySettingsUI(data); }
 
         supa.channel('room_updates')
-            .on('postgres_changes', { 
-                event: 'UPDATE', 
-                schema: 'public', 
-                table: 'room_settings', 
-                filter: filterStr 
-            }, (payload) => { 
-                updateRoomUI(payload.new.mode); 
-                applySettingsUI(payload.new); 
-            })
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_settings', filter: 'id=eq.1' }, 
+            (payload) => { updateRoomUI(payload.new.mode); applySettingsUI(payload.new); })
             .subscribe();
     }
 
@@ -459,12 +429,8 @@
     function updateRoomUI(mode) {
         const bar = document.getElementById('status-bar');
         const statusText = document.getElementById('status-text');
-        
-        // Ensure we always have a mode string to avoid hangs
-        const m = (mode || 'collaborate').toLowerCase();
-        
+        const m = mode.toLowerCase();
         const icons = { silent: '🤫 SILENT', whisper: '🔉 WHISPER', collaborate: '🗣️ COLLABORATE' };
-        
         bar.style.background = m === 'silent' ? '#d32f2f' : (m === 'whisper' ? '#fbc02d' : '#388e3c');
         bar.style.color = m === 'whisper' ? '#1a1a1a' : '#ffffff';
         statusText.innerText = icons[m] || icons['collaborate'];
@@ -659,7 +625,4 @@ window.handleSignOut = async function() {
     <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" async defer></script>
 </body>
 </html>
-
-
-
 
