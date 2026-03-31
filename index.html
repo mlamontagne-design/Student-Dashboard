@@ -430,7 +430,7 @@ supa.removeChannel(supa.channel(channelName));
             applySettingsUI(payload.new); 
         })
         .subscribe();
-
+    }
     function applySettingsUI(data) {
         if (document.getElementById('donow-text')) document.getElementById('donow-text').innerText = data.do_now_text || "No Do Now assigned.";
         cachedDoNowUrl = data.do_now_url || "";
