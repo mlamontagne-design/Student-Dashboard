@@ -381,11 +381,21 @@
     });
     // --- REAL-TIME UPDATES ---
     function initStudentRealtime(userEmail) {
-        supa.channel('student-rank-sync')
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'students', filter: `email=eq.${userEmail}` }, 
-            (payload) => updateRankUI(payload.new))
-            .subscribe();
-    }
+    const channelName = 'student-rank-sync';
+    
+    // 1. CLEAR: If this channel exists, kill it so we start fresh
+    supa.removeChannel(supa.channel(channelName));
+
+    // 2. REBUILD: Chain everything so .on() is strictly BEFORE .subscribe()
+    supa.channel(channelName)
+        .on('postgres_changes', { 
+            event: 'UPDATE', 
+            schema: 'public', 
+            table: 'students', 
+            filter: `email=eq.${userEmail}` 
+        }, (payload) => updateRankUI(payload.new))
+        .subscribe(); 
+}
 
     function updateRankUI(data) {
         const fields = [
@@ -408,12 +418,18 @@
     async function subscribeToRoomChanges() {
         const { data } = await supa.from('room_settings').select('*').eq('id', 1).single();
         if (data) { updateRoomUI(data.mode); applySettingsUI(data); }
-
-        supa.channel('room_updates')
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_settings', filter: 'id=eq.1' }, 
-            (payload) => { updateRoomUI(payload.new.mode); applySettingsUI(payload.new); })
-            .subscribe();
-    }
+supa.removeChannel(supa.channel(channelName));
+        supa.channel(channelName)
+        .on('postgres_changes', { 
+            event: 'UPDATE', 
+            schema: 'public', 
+            table: 'room_settings', 
+            filter: 'id=eq.1' 
+        }, (payload) => { 
+            updateRoomUI(payload.new.mode); 
+            applySettingsUI(payload.new); 
+        })
+        .subscribe();
 
     function applySettingsUI(data) {
         if (document.getElementById('donow-text')) document.getElementById('donow-text').innerText = data.do_now_text || "No Do Now assigned.";
