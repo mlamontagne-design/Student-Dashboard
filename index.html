@@ -343,6 +343,7 @@
 
         // 4. UI & LISTENERS (Run Once)
         if (!isInitialized && currentUser.verified) {
+            isInitialized = true; 
             console.log("✅ Initializing Dashboard for:", currentUser.name);
             const { data: profile } = await supa
         .from('students')
@@ -375,7 +376,7 @@
 
             subscribeToRoomChanges(); 
             initStudentRealtime(currentUser.email);
-            isInitialized = true; 
+            
         }
     });
     // --- REAL-TIME UPDATES ---
