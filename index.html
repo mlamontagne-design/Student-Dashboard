@@ -416,21 +416,34 @@
     }
 
     async function subscribeToRoomChanges() {
-        const { data } = await supa.from('room_settings').select('*').eq('id', 1).single();
-        if (data) { updateRoomUI(data.mode); applySettingsUI(data); }
-supa.removeChannel(supa.channel(channelName));
-        supa.channel(channelName)
+    // 1. Initial Fetch: Get the current status immediately on load
+    const { data } = await supa.from('room_settings').select('*').eq('id', 1).single();
+    if (data) { 
+        updateRoomUI(data.mode); 
+        applySettingsUI(data); 
+    }
+
+    // 2. Realtime Subscription: Listen for changes while the page is open
+    const roomChannel = 'room-status-updates';
+    
+    // Clean up any old connection attempts
+    supa.removeChannel(supa.channel(roomChannel));
+
+    supa.channel(roomChannel)
         .on('postgres_changes', { 
             event: 'UPDATE', 
             schema: 'public', 
             table: 'room_settings', 
             filter: 'id=eq.1' 
         }, (payload) => { 
+            console.log("Live update received:", payload.new.mode);
             updateRoomUI(payload.new.mode); 
             applySettingsUI(payload.new); 
         })
-        .subscribe();
-    }
+        .subscribe((status) => {
+            console.log("Realtime status:", status);
+        });
+}
     function applySettingsUI(data) {
         if (document.getElementById('donow-text')) document.getElementById('donow-text').innerText = data.do_now_text || "No Do Now assigned.";
         cachedDoNowUrl = data.do_now_url || "";
